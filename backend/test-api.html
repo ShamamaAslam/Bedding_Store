@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Auth API</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 600px; margin: 0 auto; }
+        button { padding: 10px 20px; margin: 10px; cursor: pointer; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 5px; }
+        input { padding: 8px; margin: 5px; width: 90%; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test Authentication API</h1>
+    
+    <div>
+        <h2>Register New User</h2>
+        <input type="text" id="name" placeholder="Name" value="Test User"><br>
+        <input type="email" id="email" placeholder="Email" value="test@example.com"><br>
+        <input type="password" id="password" placeholder="Password" value="password123"><br>
+        <input type="text" id="phone" placeholder="Phone" value="1234567890"><br>
+        <button onclick="registerUser()">Register User</button>
+    </div>
+
+    <div>
+        <h2>Login</h2>
+        <input type="email" id="loginEmail" placeholder="Email" value="test@example.com"><br>
+        <input type="password" id="loginPassword" placeholder="Password" value="password123"><br>
+        <button onclick="loginUser()">Login</button>
+    </div>
+
+    <div>
+        <h2>Response:</h2>
+        <pre id="response">Waiting for action...</pre>
+    </div>
+
+    <script>
+        async function registerUser() {
+            const userData = {
+                name: document.getElementById('name').value,
+                email: document.getElementById('email').value,
+                password: document.getElementById('password').value,
+                phone: document.getElementById('phone').value,
+                address: {
+                    street: "123 Main St",
+                    city: "Lahore",
+                    state: "Punjab",
+                    pincode: "54000"
+                }
+            };
+
+            document.getElementById('response').textContent = 'Loading...';
+
+            try {
+                const response = await fetch('http://localhost:5000/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(userData)
+                });
+
+                const data = await response.json();
+                document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+                
+                if (data.success && data.user?.token) {
+                    alert('✅ Registration successful! Token: ' + data.user.token.substring(0, 20) + '...');
+                }
+            } catch (error) {
+                document.getElementById('response').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function loginUser() {
+            const loginData = {
+                email: document.getElementById('loginEmail').value,
+                password: document.getElementById('loginPassword').value
+            };
+
+            document.getElementById('response').textContent = 'Loading...';
+
+            try {
+                const response = await fetch('http://localhost:5000/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(loginData)
+                });
+
+                const data = await response.json();
+                document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+                
+                if (data.success && data.user?.token) {
+                    alert('✅ Login successful! Token: ' + data.user.token.substring(0, 20) + '...');
+                }
+            } catch (error) {
+                document.getElementById('response').textContent = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>
