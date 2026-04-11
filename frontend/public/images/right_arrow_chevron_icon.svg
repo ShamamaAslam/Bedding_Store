@@ -1,0 +1,18 @@
+<svg
+  width="7px"
+  height="12px"
+  viewBox="0 0 7 12"
+  version="1.1"
+  xmlns="http://www.w3.org/2000/svg"
+  xmlns:xlink="http://www.w3.org/1999/xlink"
+>
+  <title>UI Element/Common Widgets/Chevron/Right</title>
+  <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+    <path
+      class="chevron-graphic"
+      d="M3.97265614,2.83875074 L9.78459226,7.89052966 L9.0073955,8.78459226 L3.97224926,4.40775074 L-1.06155398,8.78459226 L-1.83875074,7.89052966 L3.97265614,2.83875074 Z"
+      fill="#333333"
+      transform="translate(3.972921, 5.811672) scale(1, -1) rotate(90.000000) translate(-3.972921, -5.811672) "
+    ></path>
+  </g>
+</svg>
