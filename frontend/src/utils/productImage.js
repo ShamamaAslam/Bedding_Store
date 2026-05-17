@@ -1,6 +1,6 @@
 const API_BASE_URL = 'http://localhost:5000';
 
-const makeAbsoluteUrl = (url) => {
+export const makeAbsoluteUrl = (url) => {
   if (!url || typeof url !== 'string') return '';
 
   const trimmed = url.trim();

@@ -1,6 +1,19 @@
 import axios from 'axios';
 
-const API = axios.create({ baseURL: 'http://localhost:5000/api' });
+const getApiBaseUrl = () => {
+  const envUrl = process.env.REACT_APP_API_BASE_URL;
+  if (envUrl && typeof envUrl === 'string') {
+    return envUrl.replace(/\/$/, '');
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return 'http://localhost:5000/api';
+  }
+
+  return 'http://localhost:5000/api';
+};
+
+const API = axios.create({ baseURL: getApiBaseUrl() });
 
 API.interceptors.request.use((req) => {
   const stored = localStorage.getItem('user');
@@ -50,6 +63,7 @@ export const removeFromWishlist = (productId) => API.delete(`/auth/wishlist/${pr
 // ── Categories ────────────────────────────────────────────
 export const getCategories = () => API.get('/categories');
 export const createCategory = (data) => API.post('/categories', data);
+export const updateCategory = (id, data) => API.put(`/categories/${id}`, data);
 export const deleteCategory = (id) => API.delete(`/categories/${id}`);
 
 // ── Products ──────────────────────────────────────────────
@@ -78,3 +92,9 @@ export const createPaymentIntent = (data) => API.post('/payment/create-intent', 
 // ── AI Assistant ───────────────────────────────────────────
 export const assistantChat = (data) => API.post('/assistant/chat', data);
 export const assistantSuggest = (q) => API.get('/assistant/suggest', { params: { q } });
+export const assistantSeo = (data) => API.post('/assistant/seo', data);
+
+// ── Analytics ──────────────────────────────────────────────
+export const getAnalytics = () => API.get('/analytics');
+export const getPersonalizedRecommendations = (params) => API.get('/analytics/recommendations', { params });
+export const logAnalyticsEvent = (data) => API.post('/analytics/events', data);

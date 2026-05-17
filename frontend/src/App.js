@@ -17,11 +17,15 @@ import Profile from './pages/Profile';
 import Wishlist from './pages/Wishlist';
 
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 import ChatAssistant from './components/ChatAssistant';
 import AdminRoute from './components/AdminRoute';
 import ProtectedRoute from './components/ProtectedRoute';
+import { storeMarketingSource } from './utils/attribution';
+import { trackSessionSource } from './utils/behaviorTracker';
 
 function App() {
+  const publicUrl = process.env.PUBLIC_URL || '';
   const [showIntro, setShowIntro] = useState(() => {
     try {
       return sessionStorage.getItem('wf_intro_seen') !== '1';
@@ -45,6 +49,11 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [showIntro]);
 
+  useEffect(() => {
+    const source = storeMarketingSource();
+    trackSessionSource(source);
+  }, []);
+
   return (
     <HelmetProvider>
       <AuthProvider>
@@ -56,7 +65,7 @@ function App() {
                 <div style={introStyles.glowB} />
                 <div style={introStyles.panel}>
                   <div style={introStyles.logoShell}>
-                    <img src="/brand-logo.png" alt="Wajahat Fabrics" style={introStyles.logo} />
+                    <img src={`${publicUrl}/brand-logo.png`} alt="Wajahat Fabrics" style={introStyles.logo} />
                   </div>
                   <div style={introStyles.textBlock}>
                     <div style={introStyles.kicker}>Luxury Bedding & Home Textiles</div>
@@ -121,6 +130,7 @@ function App() {
               />
             </Routes>
             <ChatAssistant />
+            <Footer />
           </Router>
         </CartProvider>
       </AuthProvider>

@@ -4,25 +4,25 @@ import { Link } from 'react-router-dom';
 
 const DEFAULT_SLIDES = [
   {
-    image: '/images/hero1.webp',
+    image: `${process.env.PUBLIC_URL || ''}/images/hero1.webp`,
     alt: 'Luxury bedding on a modern bedroom setup',
     title: 'Elevate Every Room With Boutique-Style Bedding',
     subtitle: 'Discover premium textures, artisan details, and timeless comfort curated for modern homes.'
   },
   {
-    image: '/images/hero2.webp',
+    image: `${process.env.PUBLIC_URL || ''}/images/hero2.webp`,
     alt: 'Warm neutral bedroom with layered textiles',
     title: 'Crafted Layers. Signature Comfort.',
     subtitle: 'From breathable bedsheets to cozy blankets, build a bedroom that feels effortlessly luxurious.'
   },
   {
-    image: '/images/hero3.webp',
+    image: `${process.env.PUBLIC_URL || ''}/images/hero3.webp`,
     alt: 'Premium interior with soft bedding and sunlight',
     title: 'Modern Living, Styled To Perfection',
     subtitle: 'Bring calm, warmth, and elegance to your home with premium eCommerce-ready essentials.'
   },
   {
-    image: '/images/hero4.webp',
+    image: `${process.env.PUBLIC_URL || ''}/images/hero4.webp`,
     alt: 'Elegant bedroom decor with cozy fabric textures',
     title: 'Where Comfort Meets Luxury',
     subtitle: 'Designed for everyday indulgence with refined materials, rich color palettes, and elevated finishing.'

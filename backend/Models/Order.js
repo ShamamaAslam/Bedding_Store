@@ -38,6 +38,14 @@ const orderSchema = new mongoose.Schema({
     enum: ['COD', 'Card', 'UPI'],
     default: 'COD'
   },
+  marketingSource: {
+    type: String,
+    default: 'direct'
+  },
+  checkoutSessionId: {
+    type: String,
+    default: ''
+  },
   paymentStatus: {
     type: String,
     enum: ['Pending', 'Paid', 'Failed'],
@@ -59,6 +67,27 @@ const orderSchema = new mongoose.Schema({
     type: String,
     enum: ['Processing', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'],
     default: 'Processing'
+  },
+  returnedAt: {
+    type: Date,
+    default: null
+  },
+  returnReason: {
+    type: String,
+    default: ''
+  },
+  isDefective: {
+    type: Boolean,
+    default: false
+  },
+  refundAmount: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  deliveredAt: {
+    type: Date,
+    default: null
   },
   createdAt: {
     type: Date,

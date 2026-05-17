@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getProductImage, makeAbsoluteUrl } from '../utils/productImage';
 import { clearStoreSale, getStoreSalePercent, setStoreSalePercent } from '../utils/pricing';
 import {
   getProducts, createProduct, updateProduct, deleteProduct,
-  getCategories, createCategory, deleteCategory,
+  getCategories, createCategory, updateCategory, deleteCategory,
   getAllOrders, updateOrderStatus,
-  getAllUsers, updateUserRole
+  getAllUsers, updateUserRole,
+  assistantSeo,
+  getAnalytics
 } from '../services/api';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -17,6 +20,7 @@ const getCatIcon = (name = '') => {
 
 const ORDER_STATUSES = ['Processing', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'];
 const FABRIC_TYPE_PRESETS = ['Cotton', 'Silk', 'Linen', 'Polyester', 'Wool', 'Blend', 'Other'];
+const SHADE_PRESETS = ['light', 'dark'];
 
 const statusColor = { Processing: '#f0ad4e', Confirmed: '#5bc0de', Shipped: '#9b59b6', Delivered: '#2ecc71', Cancelled: '#e74c3c' };
 
@@ -79,13 +83,16 @@ const discountedPrice = (price, percent) => {
 };
 
 // ── Empty product form ────────────────────────────────────────────────────────
-const emptyProduct = {
+const createEmptyProduct = () => ({
   name: '', description: '', price: '', discountPrice: '',
   stock: '', fabricType: 'Cotton', category: '',
+  costPrice: '', shippingCost: '', marketingCost: '',
+  supplierName: '', supplierAvgDeliveryDays: '', supplierQualityScore: '',
+  shadeCategories: [],
   sizes: '',
   // SEO
   slug: '', metaTitle: '', metaDescription: '', metaKeywords: ''
-};
+});
 
 const normalizeSizeName = (value = '') => value.trim().replace(/\s+/g, ' ');
 
@@ -125,7 +132,14 @@ const buildProductDraft = (product, { duplicate = false } = {}) => {
     discountPrice: product?.discountPrice || '',
     stock: product?.stock || '',
     fabricType: product?.fabricType || 'Cotton',
+    costPrice: product?.costPrice || '',
+    shippingCost: product?.shippingCost || '',
+    marketingCost: product?.marketingCost || '',
+    supplierName: product?.supplier?.name || '',
+    supplierAvgDeliveryDays: product?.supplier?.avgDeliveryDays || '',
+    supplierQualityScore: product?.supplier?.qualityScore || '',
     category: product?.category?._id || '',
+    shadeCategories: Array.isArray(product?.shadeCategories) ? product.shadeCategories : [],
     sizes: product?.sizes?.join(', ') || '',
     slug: duplicate ? '' : (product?.slug || ''),
     metaTitle: duplicate ? '' : (product?.metaTitle || ''),
@@ -148,7 +162,7 @@ const AdminPanel = () => {
 
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [productForm, setProductForm] = useState(emptyProduct);
+  const [productForm, setProductForm] = useState(createEmptyProduct());
   const [sizePrices, setSizePrices] = useState([]);
   const [colorVariants, setColorVariants] = useState([]);
   const [newColorName, setNewColorName] = useState('');
@@ -162,10 +176,46 @@ const AdminPanel = () => {
   const [discountScope, setDiscountScope] = useState('all');
   const [selectedDiscountProductIds, setSelectedDiscountProductIds] = useState([]);
   const [discountBusy, setDiscountBusy] = useState(false);
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [productCategoryFilter, setProductCategoryFilter] = useState('all');
+  const [productShadeFilter, setProductShadeFilter] = useState('all');
+  const [productStockFilter, setProductStockFilter] = useState('all');
+  const [seoSuggestions, setSeoSuggestions] = useState(null);
+  const [seoLoading, setSeoLoading] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
-  const [newCategory, setNewCategory] = useState({ name: '', description: '' });
+  const [newCategory, setNewCategory] = useState({ name: '', description: '', image: '' });
+  const [newCategoryImageFile, setNewCategoryImageFile] = useState(null);
   const [quickCategoryName, setQuickCategoryName] = useState('');
   const [msg, setMsg] = useState({ text: '', type: 'success' });
+
+  const resolveCategoryPreviewSrc = (raw) => {
+    const value = typeof raw === 'string' ? raw.trim() : '';
+    if (!value) return '';
+    if (value.startsWith('/uploads/') || value.startsWith('uploads/') || value.startsWith('http://') || value.startsWith('https://')) {
+      return makeAbsoluteUrl(value);
+    }
+    return value;
+  };
+
+  const buildCategoryPayload = ({ name, description, image, imageFile }) => {
+    const hasFile = imageFile instanceof File;
+    if (!hasFile) {
+      return {
+        name: (name || '').trim(),
+        description: (description || '').trim(),
+        image: (image || '').trim()
+      };
+    }
+
+    const payload = new FormData();
+    payload.append('name', (name || '').trim());
+    payload.append('description', (description || '').trim());
+    payload.append('image', (image || '').trim());
+    payload.append('imageFile', imageFile);
+    return payload;
+  };
 
   // ── Data loading ────────────────────────────────────────
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: 'success' }), 3500); };
@@ -183,7 +233,20 @@ const AdminPanel = () => {
   useEffect(() => {
     if (tab === 'orders') loadOrders();
     if (tab === 'users') loadUsers();
+    if (tab === 'analytics') loadAnalytics();
   }, [tab]);
+
+  const loadAnalytics = async () => {
+    try {
+      setAnalyticsLoading(true);
+      const res = await getAnalytics();
+      if (res?.data?.success) setAnalyticsData(res.data);
+    } catch (err) {
+      console.error('Analytics load error:', err);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
 
   useEffect(() => {
     const syncSale = () => setStoreSalePercentState(getStoreSalePercent());
@@ -228,12 +291,22 @@ const AdminPanel = () => {
       data.append('price', productForm.price);
       data.append('stock', productForm.stock);
       data.append('fabricType', productForm.fabricType);
+      data.append('costPrice', productForm.costPrice || 0);
+      data.append('shippingCost', productForm.shippingCost || 0);
+      data.append('marketingCost', productForm.marketingCost || 0);
+      data.append('supplierName', productForm.supplierName || '');
+      data.append('supplierAvgDeliveryDays', productForm.supplierAvgDeliveryDays || 0);
+      data.append('supplierQualityScore', productForm.supplierQualityScore || 0);
+      data.append('shadeCategories', JSON.stringify(Array.isArray(productForm.shadeCategories) ? productForm.shadeCategories : []));
 
       if (productForm.slug.trim()) data.append('slug', productForm.slug.trim());
       if (productForm.metaTitle.trim()) data.append('metaTitle', productForm.metaTitle.trim());
       if (productForm.metaDescription.trim()) data.append('metaDescription', productForm.metaDescription.trim());
 
-      if (productForm.discountPrice) data.append('discountPrice', productForm.discountPrice);
+      const normalizedDiscountPrice = String(productForm.discountPrice ?? '').trim();
+      if (editingProduct || normalizedDiscountPrice !== '') {
+        data.append('discountPrice', normalizedDiscountPrice);
+      }
 
       data.append('colors', JSON.stringify(colorVariants.map(variant => variant.name)));
       data.append('sizes', JSON.stringify(productForm.sizes.split(',').map(s => s.trim()).filter(Boolean)));
@@ -283,7 +356,7 @@ const AdminPanel = () => {
 
       setShowProductForm(false);
       setEditingProduct(null);
-      setProductForm(emptyProduct);
+      setProductForm(createEmptyProduct());
       setSizePrices([]);
       setColorVariants([]);
       setNewColorName('');
@@ -437,9 +510,11 @@ const AdminPanel = () => {
   const handleAddCategory = async (e) => {
     e.preventDefault();
     try {
-      await createCategory(newCategory);
+      const payload = buildCategoryPayload({ ...newCategory, imageFile: newCategoryImageFile });
+      await createCategory(payload);
       flash('✅ Category added!');
-      setNewCategory({ name: '', description: '' });
+      setNewCategory({ name: '', description: '', image: '' });
+      setNewCategoryImageFile(null);
       loadCategories();
     } catch (err) {
       flash('❌ ' + (err.response?.data?.error || err.message), 'error');
@@ -451,6 +526,34 @@ const AdminPanel = () => {
     await deleteCategory(id);
     flash('🗑️ Category deleted');
     loadCategories();
+  };
+
+  const handleUpdateCategoryImage = async (category) => {
+    const currentImage = typeof category?.image === 'string' ? category.image : '';
+    const nextImage = window.prompt('Enter category image URL (leave empty to remove):', currentImage || '');
+    if (nextImage === null) return;
+
+    try {
+      await updateCategory(category._id, { image: nextImage.trim() });
+      flash('🖼️ Category image updated');
+      await loadCategories();
+    } catch (err) {
+      flash('❌ ' + (err.response?.data?.error || err.response?.data?.message || err.message), 'error');
+    }
+  };
+
+  const handleUpdateCategoryImageFile = async (category, file) => {
+    if (!file) return;
+
+    try {
+      const payload = new FormData();
+      payload.append('imageFile', file);
+      await updateCategory(category._id, payload);
+      flash('🖼️ Category image uploaded');
+      await loadCategories();
+    } catch (err) {
+      flash('❌ ' + (err.response?.data?.error || err.response?.data?.message || err.message), 'error');
+    }
   };
 
   const handleQuickAddCategory = async () => {
@@ -613,7 +716,67 @@ const AdminPanel = () => {
     }
   };
 
+  const clearProductDiscountPrices = async ({ applyToAll }) => {
+    const targets = applyToAll
+      ? products
+      : products.filter(item => selectedDiscountProductIds.includes(item._id));
+
+    if (targets.length === 0) {
+      flash('❌ Please select at least one product', 'error');
+      return;
+    }
+
+    const confirmText = applyToAll
+      ? `Clear discount price for all ${targets.length} products?`
+      : `Clear discount price for ${targets.length} selected products?`;
+
+    if (!window.confirm(confirmText)) return;
+
+    setDiscountBusy(true);
+    try {
+      for (const product of targets) {
+        await updateProduct(product._id, { discountPrice: '' });
+      }
+
+      await loadProducts();
+      flash(`✅ Discount price removed from ${applyToAll ? 'all products' : `${targets.length} selected products`}`);
+    } catch (err) {
+      flash('❌ ' + getApiErrorText(err), 'error');
+    } finally {
+      setDiscountBusy(false);
+    }
+  };
+
   const allProductsSelected = products.length > 0 && selectedDiscountProductIds.length === products.length;
+
+  const filteredProducts = useMemo(() => {
+    const search = productSearchTerm.trim().toLowerCase();
+
+    return products.filter((product) => {
+      if (search) {
+        const name = (product?.name || '').toLowerCase();
+        const slug = (product?.slug || '').toLowerCase();
+        const description = (product?.description || '').toLowerCase();
+        if (!name.includes(search) && !slug.includes(search) && !description.includes(search)) {
+          return false;
+        }
+      }
+
+      if (productCategoryFilter !== 'all') {
+        if ((product?.category?._id || '') !== productCategoryFilter) return false;
+      }
+
+      if (productShadeFilter !== 'all') {
+        const shades = Array.isArray(product?.shadeCategories) ? product.shadeCategories : [];
+        if (!shades.includes(productShadeFilter)) return false;
+      }
+
+      if (productStockFilter === 'in_stock' && Number(product?.stock || 0) <= 0) return false;
+      if (productStockFilter === 'out_of_stock' && Number(product?.stock || 0) > 0) return false;
+
+      return true;
+    });
+  }, [products, productSearchTerm, productCategoryFilter, productShadeFilter, productStockFilter]);
 
   return (
     <div style={s.page}>
@@ -626,6 +789,7 @@ const AdminPanel = () => {
           { id: 'categories', label: '📦 Categories' },
           { id: 'orders', label: '📋 Orders' },
           { id: 'users', label: '👥 Users' },
+          { id: 'analytics', label: '📊 Analytics' },
         ].map(t => (
           <button
             key={t.id}
@@ -735,15 +899,101 @@ const AdminPanel = () => {
         {tab === 'products' && (
           <>
             <div style={s.header}>
-              <h2 style={s.heading}>Products ({products.length})</h2>
-              <button style={s.addBtn} onClick={() => { setShowProductForm(!showProductForm); setEditingProduct(null); setProductForm(emptyProduct); setSizePrices([]); setColorVariants([]); setNewColorName(''); setSelectedImages([]); setExistingImages([]); setCustomFabricType(''); setFileInputVersion(v => v + 1); }}>
-                {showProductForm ? '✕ Cancel' : '+ Add Product'}
+              <h2 style={s.heading}>Products ({filteredProducts.length}/{products.length})</h2>
+              <div style={s.headerActions}>
+                <button
+                  type="button"
+                  style={s.selectToggleBtn}
+                  disabled={products.length === 0}
+                  onClick={allProductsSelected ? clearDiscountSelection : selectAllDiscountProducts}
+                >
+                  {allProductsSelected ? 'Unselect All' : 'Select All'}
+                </button>
+                <button
+                  type="button"
+                  style={s.bulkClearSelectedBtn}
+                  disabled={discountBusy}
+                  onClick={() => clearProductDiscountPrices({ applyToAll: false })}
+                >
+                  {discountBusy ? 'Processing...' : 'Clear Discount (Selected)'}
+                </button>
+                <button
+                  type="button"
+                  style={s.bulkClearAllBtn}
+                  disabled={discountBusy}
+                  onClick={() => clearProductDiscountPrices({ applyToAll: true })}
+                >
+                  {discountBusy ? 'Processing...' : 'Clear Discount (All)'}
+                </button>
+                <button style={s.addBtn} onClick={() => { setShowProductForm(!showProductForm); setEditingProduct(null); setProductForm(createEmptyProduct()); setSizePrices([]); setColorVariants([]); setNewColorName(''); setSelectedImages([]); setExistingImages([]); setCustomFabricType(''); setFileInputVersion(v => v + 1); }}>
+                  {showProductForm ? '✕ Cancel' : '+ Add Product'}
+                </button>
+              </div>
+            </div>
+
+            <div style={s.filterBar}>
+              <input
+                style={s.input}
+                value={productSearchTerm}
+                onChange={(e) => setProductSearchTerm(e.target.value)}
+                placeholder="Search by name, slug, description"
+              />
+              <select style={s.input} value={productCategoryFilter} onChange={(e) => setProductCategoryFilter(e.target.value)}>
+                <option value="all">All Categories</option>
+                {categories.map((category) => (
+                  <option key={category._id} value={category._id}>{category.name}</option>
+                ))}
+              </select>
+              <select style={s.input} value={productShadeFilter} onChange={(e) => setProductShadeFilter(e.target.value)}>
+                <option value="all">All Shades</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+              <select style={s.input} value={productStockFilter} onChange={(e) => setProductStockFilter(e.target.value)}>
+                <option value="all">All Stock</option>
+                <option value="in_stock">In Stock</option>
+                <option value="out_of_stock">Out of Stock</option>
+              </select>
+              <button
+                type="button"
+                style={s.smallActionBtn}
+                onClick={() => {
+                  setProductSearchTerm('');
+                  setProductCategoryFilter('all');
+                  setProductShadeFilter('all');
+                  setProductStockFilter('all');
+                }}
+              >
+                Reset Filters
               </button>
             </div>
 
             {showProductForm && (
               <form onSubmit={handleProductSubmit} style={s.form}>
                 <h3 style={s.formTitle}>{editingProduct ? '✏️ Edit Product' : '➕ New Product'}</h3>
+                <div style={s.topSubmitRow}>
+                  <button type="submit" style={s.topSubmitBtn} disabled={loading}>
+                    {loading ? '⏳ Saving...' : editingProduct ? '💾 Save Changes' : '➕ Create Product'}
+                  </button>
+                </div>
+
+                {editingProduct && (
+                  <div style={s.editingPreviewRow}>
+                    {getProductImage(editingProduct) ? (
+                      <img
+                        src={getProductImage(editingProduct)}
+                        alt={editingProduct?.name || 'Product image'}
+                        style={s.editingPreviewImage}
+                      />
+                    ) : (
+                      <div style={s.editingPreviewFallback}>No image</div>
+                    )}
+                    <div>
+                      <div style={s.editingPreviewTitle}>{editingProduct?.name || 'Product'}</div>
+                      <div style={s.editingPreviewSub}>Editing selected product</div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Basic Info */}
                 <div style={s.formSection}>Basic Information</div>
@@ -787,6 +1037,30 @@ const AdminPanel = () => {
                     <input style={s.input} type="number" min="0" step="1" value={productForm.stock} onChange={pf('stock')} required placeholder="50" />
                   </div>
                   <div>
+                    <label style={s.label}>Product Cost (Rs.)</label>
+                    <input style={s.input} type="number" min="0" step="1" value={productForm.costPrice} onChange={pf('costPrice')} placeholder="1200" />
+                  </div>
+                  <div>
+                    <label style={s.label}>Shipping Cost / Unit (Rs.)</label>
+                    <input style={s.input} type="number" min="0" step="1" value={productForm.shippingCost} onChange={pf('shippingCost')} placeholder="120" />
+                  </div>
+                  <div>
+                    <label style={s.label}>Marketing Cost / Unit (Rs.)</label>
+                    <input style={s.input} type="number" min="0" step="1" value={productForm.marketingCost} onChange={pf('marketingCost')} placeholder="80" />
+                  </div>
+                  <div>
+                    <label style={s.label}>Supplier Name</label>
+                    <input style={s.input} value={productForm.supplierName} onChange={pf('supplierName')} placeholder="e.g. ABC Textiles" />
+                  </div>
+                  <div>
+                    <label style={s.label}>Supplier Avg Delivery (Days)</label>
+                    <input style={s.input} type="number" min="0" step="1" value={productForm.supplierAvgDeliveryDays} onChange={pf('supplierAvgDeliveryDays')} placeholder="5" />
+                  </div>
+                  <div>
+                    <label style={s.label}>Supplier Quality Score (0-5)</label>
+                    <input style={s.input} type="number" min="0" max="5" step="0.1" value={productForm.supplierQualityScore} onChange={pf('supplierQualityScore')} placeholder="4.4" />
+                  </div>
+                  <div>
                     <label style={s.label}>Fabric Type</label>
                     <select style={s.input} value={productForm.fabricType} onChange={pf('fabricType')}>
                       {fabricTypeOptions.map(f => <option key={f} value={f}>{f}</option>)}
@@ -805,6 +1079,36 @@ const AdminPanel = () => {
                         }}
                       />
                       <button type="button" style={s.smallActionBtn} onClick={handleQuickAddFabricType}>Add</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={s.label}>Shade Categories</label>
+                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '6px' }}>
+                      {SHADE_PRESETS.map((shade) => {
+                        const checked = Array.isArray(productForm.shadeCategories) && productForm.shadeCategories.includes(shade);
+                        return (
+                          <label key={shade} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#444' }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setProductForm((prev) => {
+                                  const current = Array.isArray(prev.shadeCategories) ? prev.shadeCategories : [];
+                                  const next = checked
+                                    ? current.filter((item) => item !== shade)
+                                    : [...current, shade];
+
+                                  return { ...prev, shadeCategories: next };
+                                });
+                              }}
+                            />
+                            {shade.charAt(0).toUpperCase() + shade.slice(1)}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <div style={{ color: '#777', fontSize: '12px', marginTop: '6px' }}>
+                      Tip: select one or both to make admin filtering explicit.
                     </div>
                   </div>
                   <div>
@@ -994,7 +1298,43 @@ const AdminPanel = () => {
                 </div>
 
                 {/* SEO Section */}
-                <div style={s.formSection}>SEO & Meta Details</div>
+                <div style={{ ...s.formSection, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  SEO & Meta Details
+                  <button
+                    type="button"
+                    style={{ padding: '6px 14px', fontSize: '13px', backgroundColor: '#0e7a6d', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                    disabled={seoLoading || !productForm.name}
+                    onClick={async () => {
+                      try {
+                        setSeoLoading(true);
+                        const res = await assistantSeo({
+                          name: productForm.name,
+                          description: productForm.description,
+                          category: productForm.category ? categories.find(c => c._id === productForm.category)?.name : '',
+                          fabricType: productForm.fabricType,
+                          colors: productForm.metaKeywords.split(',').map(k => k.trim()).filter(Boolean)
+                        });
+                        if (res?.data?.success && res.data.suggestions) {
+                          setSeoSuggestions(res.data.suggestions);
+                          setProductForm(prev => ({
+                            ...prev,
+                            metaTitle: res.data.suggestions.metaTitle,
+                            metaDescription: res.data.suggestions.metaDescription,
+                            metaKeywords: (res.data.suggestions.metaKeywords || []).join(', ')
+                          }));
+                          flash('✓ SEO suggestions generated and applied!', 'success');
+                        }
+                      } catch (err) {
+                        flash('Failed to generate SEO suggestions', 'error');
+                        console.error('SEO error:', err);
+                      } finally {
+                        setSeoLoading(false);
+                      }
+                    }}
+                  >
+                    {seoLoading ? '⏳ Generating...' : '✨ Generate SEO'}
+                  </button>
+                </div>
                 <div style={s.formGrid}>
                   <div>
                     <label style={s.label}>URL Slug</label>
@@ -1026,13 +1366,13 @@ const AdminPanel = () => {
               <table style={s.table}>
                 <thead>
                   <tr style={s.thead}>
-                    {['Select', 'Product', 'Category', 'Price', 'Stock', 'Views', 'SEO', 'Actions'].map(h => (
+                    {['Select', 'Product', 'Category', 'Shades', 'Price', 'Stock', 'Views', 'SEO', 'Actions'].map(h => (
                       <th key={h} style={s.th}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map((p, i) => (
+                  {filteredProducts.map((p, i) => (
                     <tr key={p._id} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
                       <td style={s.td}>
                         <input
@@ -1041,8 +1381,42 @@ const AdminPanel = () => {
                           onChange={() => toggleDiscountProductSelection(p._id)}
                         />
                       </td>
-                      <td style={s.td}>{getCatIcon(p.category?.name)} {p.name}</td>
+                      <td style={s.td}>
+                        <div style={s.productInfoCell}>
+                          {getProductImage(p) ? (
+                            <img src={getProductImage(p)} alt={p?.name || 'Product image'} style={s.productTableThumb} />
+                          ) : (
+                            <div style={s.productTableThumbFallback}>No image</div>
+                          )}
+                          <div>
+                            <div style={s.productInfoName}>{getCatIcon(p.category?.name)} {p.name}</div>
+                            <div style={s.productInfoHint}>Click edit to open this product</div>
+                          </div>
+                        </div>
+                      </td>
                       <td style={s.td}>{p.category?.name || '—'}</td>
+                      <td style={s.td}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {(Array.isArray(p.shadeCategories) && p.shadeCategories.length > 0)
+                            ? p.shadeCategories.map((shade) => (
+                              <span
+                                key={`${p._id}-${shade}`}
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: '999px',
+                                  fontSize: '11px',
+                                  fontWeight: 'bold',
+                                  backgroundColor: shade === 'light' ? '#eef6ff' : '#2f3542',
+                                  color: shade === 'light' ? '#2d6cdf' : '#fff',
+                                  border: shade === 'light' ? '1px solid #d6e6ff' : '1px solid #2f3542'
+                                }}
+                              >
+                                {shade}
+                              </span>
+                            ))
+                            : <span style={{ color: '#999', fontSize: '12px' }}>—</span>}
+                        </div>
+                      </td>
                       <td style={s.td}>
                         {p.discountPrice
                           ? <><s style={{ color: '#aaa' }}>Rs.{p.price}</s> <b style={{ color: '#e94560' }}>Rs.{p.discountPrice}</b></>
@@ -1062,6 +1436,11 @@ const AdminPanel = () => {
                       </td>
                     </tr>
                   ))}
+                  {filteredProducts.length === 0 && (
+                    <tr>
+                      <td style={s.td} colSpan={9}>No products match current filters.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1078,16 +1457,51 @@ const AdminPanel = () => {
               <input style={s.input} value={newCategory.name} onChange={e => setNewCategory({ ...newCategory, name: e.target.value })} required placeholder="e.g. Towels" />
               <label style={s.label}>Description</label>
               <input style={s.input} value={newCategory.description} onChange={e => setNewCategory({ ...newCategory, description: e.target.value })} placeholder="Short description" />
+              <label style={s.label}>Image URL (optional)</label>
+              <input style={s.input} value={newCategory.image} onChange={e => setNewCategory({ ...newCategory, image: e.target.value })} placeholder="https://... or /images/..." />
+              <label style={s.label}>Or Upload Image File</label>
+              <input
+                type="file"
+                accept="image/*"
+                style={s.input}
+                onChange={(e) => setNewCategoryImageFile(e.target.files?.[0] || null)}
+              />
               <button type="submit" style={s.submitBtn}>Add Category</button>
             </form>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {categories.map(cat => (
                 <div key={cat._id} style={{ ...s.form, display: 'flex', alignItems: 'center', gap: '16px', padding: '14px 20px' }}>
-                  <span style={{ fontSize: '28px' }}>{getCatIcon(cat.name)}</span>
+                  {cat.image ? (
+                    <img
+                      src={resolveCategoryPreviewSrc(cat.image)}
+                      alt={cat.name}
+                      style={{ width: '52px', height: '52px', borderRadius: '10px', objectFit: 'cover', flexShrink: 0, backgroundColor: '#f1f1f1' }}
+                      onError={(event) => {
+                        event.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <span style={{ fontSize: '28px' }}>{getCatIcon(cat.name)}</span>
+                  )}
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 'bold', color: '#1a1a2e' }}>{cat.name}</div>
                     <div style={{ color: '#888', fontSize: '13px' }}>{cat.description}</div>
+                    {cat.image && <div style={{ color: '#999', fontSize: '12px', marginTop: '4px', wordBreak: 'break-all' }}>{cat.image}</div>}
                   </div>
+                  <label style={{ ...s.editBtn, display: 'inline-flex', alignItems: 'center', marginRight: '6px', cursor: 'pointer' }}>
+                    ⬆️ Upload
+                    <input
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        if (file) handleUpdateCategoryImageFile(cat, file);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  <button style={s.editBtn} onClick={() => handleUpdateCategoryImage(cat)}>🖼️ Image</button>
                   <button style={s.delBtn} onClick={() => handleDeleteCategory(cat._id)}>🗑️</button>
                 </div>
               ))}
@@ -1139,6 +1553,484 @@ const AdminPanel = () => {
                 </tbody>
               </table>
             </div>
+          </>
+        )}
+
+        {/* ── ANALYTICS TAB ── */}
+        {tab === 'analytics' && (
+          <>
+            <h2 style={s.heading}>📊 Analytics Dashboard</h2>
+            {analyticsLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>Loading analytics...</div>
+            ) : analyticsData ? (
+              <>
+                {/* Summary Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                  <div style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', padding: '16px', boxShadow: '0 2px 6px rgba(0,0,0,0.04)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase' }}>Total Orders</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#1a1a2e', marginTop: '6px' }}>{analyticsData.summary?.totalOrders || 0}</div>
+                  </div>
+                  <div style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', padding: '16px', boxShadow: '0 2px 6px rgba(0,0,0,0.04)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase' }}>Total Revenue</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#0e7a6d', marginTop: '6px' }}>Rs. {(analyticsData.summary?.totalRevenue || 0).toLocaleString()}</div>
+                  </div>
+                  <div style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', padding: '16px', boxShadow: '0 2px 6px rgba(0,0,0,0.04)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase' }}>Avg Order Value</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#c66f2f', marginTop: '6px' }}>Rs. {(analyticsData.summary?.avgOrderValue || 0).toLocaleString()}</div>
+                  </div>
+                  <div style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', padding: '16px', boxShadow: '0 2px 6px rgba(0,0,0,0.04)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase' }}>Total Users</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#e94560', marginTop: '6px' }}>{analyticsData.summary?.totalUsers || 0}</div>
+                  </div>
+                  <div style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', padding: '16px', boxShadow: '0 2px 6px rgba(0,0,0,0.04)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase' }}>Total Products</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#0e7a6d', marginTop: '6px' }}>{analyticsData.summary?.totalProducts || 0}</div>
+                  </div>
+                  <div style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', padding: '16px', boxShadow: '0 2px 6px rgba(0,0,0,0.04)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase' }}>Total Stock</div>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#8f4e14', marginTop: '6px' }}>{analyticsData.summary?.totalStock || 0}</div>
+                  </div>
+                </div>
+
+                {/* Automated Alerts */}
+                {(analyticsData.alerts || []).length > 0 && (
+                  <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #fde4c2' }}>
+                    <div style={{ padding: '16px', borderBottom: '1px solid #eee', backgroundColor: '#fff8ef' }}>
+                      <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#8f4e14' }}>⚠️ Automated Alerts</h3>
+                    </div>
+                    <div style={{ padding: '14px 16px', display: 'grid', gap: '10px' }}>
+                      {analyticsData.alerts.map((alert, idx) => (
+                        <div key={`${alert.type}-${idx}`} style={{ border: '1px solid #f3e6d6', borderRadius: '10px', padding: '12px', backgroundColor: '#fff' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ fontWeight: 'bold', color: '#1a1a2e' }}>{alert.title}</div>
+                            <span style={{ padding: '3px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: 'bold', backgroundColor: alert.severity === 'high' ? '#f8d7da' : '#fff3cd', color: alert.severity === 'high' ? '#721c24' : '#856404' }}>
+                              {alert.severity}
+                            </span>
+                          </div>
+                          <div style={{ marginTop: '6px', color: '#555', fontSize: '13px' }}>{alert.message}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Customer Psychology */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#1a1a2e' }}>🧠 Customer Psychology</h3>
+                  </div>
+
+                  <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+                    <div style={{ border: '1px solid #ececec', borderRadius: '10px', overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 12px', backgroundColor: '#fafafa', fontWeight: 'bold', fontSize: '13px' }}>Most Clicked Products</div>
+                      <div style={{ maxHeight: '250px', overflow: 'auto' }}>
+                        {(analyticsData.customerPsychology?.topClickedProducts || []).slice(0, 8).map((item) => (
+                          <div key={item.productId} style={{ padding: '10px 12px', borderTop: '1px solid #f3f3f3', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                            <span style={{ color: '#333' }}>{item.productName}</span>
+                            <b style={{ color: '#0e7a6d' }}>{item.clicks}</b>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ border: '1px solid #ececec', borderRadius: '10px', overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 12px', backgroundColor: '#fafafa', fontWeight: 'bold', fontSize: '13px' }}>Viewed But Not Bought</div>
+                      <div style={{ maxHeight: '250px', overflow: 'auto' }}>
+                        {(analyticsData.customerPsychology?.viewedNotBoughtProducts || []).slice(0, 8).map((item) => (
+                          <div key={item.productId} style={{ padding: '10px 12px', borderTop: '1px solid #f3f3f3', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span style={{ color: '#333' }}>{item.productName}</span>
+                            <span style={{ fontSize: '12px', color: '#777' }}>Views: {item.views} | Sold: {item.soldQty} | CVR: {item.conversionRate}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ border: '1px solid #ececec', borderRadius: '10px', overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 12px', backgroundColor: '#fafafa', fontWeight: 'bold', fontSize: '13px' }}>Added to Cart Then Abandoned</div>
+                      <div style={{ maxHeight: '250px', overflow: 'auto' }}>
+                        {(analyticsData.customerPsychology?.cartAbandonmentProducts || []).slice(0, 8).map((item) => (
+                          <div key={item.productId} style={{ padding: '10px 12px', borderTop: '1px solid #f3f3f3', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span style={{ color: '#333' }}>{item.productName}</span>
+                            <span style={{ fontSize: '12px', color: '#777' }}>Abandoned Qty: {item.abandonedQty} | Rate: {item.abandonmentRate}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '0 16px 16px 16px' }}>
+                    <div style={s.tableWrap}>
+                      <table style={s.table}>
+                        <thead>
+                          <tr style={s.thead}>
+                            {['Checkout Step', 'Users', 'Drop-off', 'Drop-off Rate'].map(h => (<th key={h} style={s.th}>{h}</th>))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(analyticsData.customerPsychology?.checkoutDropoff || []).map((row, i) => (
+                            <tr key={`${row.step}-${i}`} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                              <td style={s.td}>{row.step.replaceAll('_', ' ')}</td>
+                              <td style={s.td}>{row.count}</td>
+                              <td style={s.td}>{row.dropOff}</td>
+                              <td style={{ ...s.td, fontWeight: 'bold', color: row.dropOffRate >= 40 ? '#e74c3c' : '#8f4e14' }}>{row.dropOffRate}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Profit Dashboard */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#1a1a2e' }}>💹 Profit Dashboard</h3>
+                  </div>
+
+                  <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}>
+                      <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', fontWeight: 'bold' }}>Revenue</div>
+                      <div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#0e7a6d' }}>Rs. {(analyticsData.profitDashboard?.summary?.totalRevenue || 0).toLocaleString()}</div>
+                    </div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}>
+                      <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', fontWeight: 'bold' }}>Product Cost</div>
+                      <div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#8f4e14' }}>Rs. {(analyticsData.profitDashboard?.summary?.totalProductCost || 0).toLocaleString()}</div>
+                    </div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}>
+                      <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', fontWeight: 'bold' }}>Shipping Cost</div>
+                      <div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#8f4e14' }}>Rs. {(analyticsData.profitDashboard?.summary?.totalShippingCost || 0).toLocaleString()}</div>
+                    </div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}>
+                      <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', fontWeight: 'bold' }}>Marketing Cost</div>
+                      <div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#8f4e14' }}>Rs. {(analyticsData.profitDashboard?.summary?.totalMarketingCost || 0).toLocaleString()}</div>
+                    </div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}>
+                      <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', fontWeight: 'bold' }}>Net Profit</div>
+                      <div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#1a1a2e' }}>Rs. {(analyticsData.profitDashboard?.summary?.totalNetProfit || 0).toLocaleString()}</div>
+                    </div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}>
+                      <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', fontWeight: 'bold' }}>Net Margin</div>
+                      <div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#1a1a2e' }}>{analyticsData.profitDashboard?.summary?.netProfitMargin || 0}%</div>
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '0 16px 16px 16px' }}>
+                    <div style={s.tableWrap}>
+                      <table style={s.table}>
+                        <thead>
+                          <tr style={s.thead}>
+                            {['Product', 'Units Sold', 'Selling Price', 'Revenue', 'Product Cost', 'Shipping', 'Marketing', 'Net Profit', 'Margin %'].map(h => (<th key={h} style={s.th}>{h}</th>))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(analyticsData.profitDashboard?.byProduct || []).slice(0, 15).map((row, i) => (
+                            <tr key={`${row.productId}-${i}`} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                              <td style={s.td}>{row.productName}</td>
+                              <td style={s.td}>{row.unitsSold}</td>
+                              <td style={s.td}>Rs. {Number(row.sellingPrice || 0).toLocaleString()}</td>
+                              <td style={s.td}>Rs. {Number(row.revenue || 0).toLocaleString()}</td>
+                              <td style={s.td}>Rs. {Number(row.productCost || 0).toLocaleString()}</td>
+                              <td style={s.td}>Rs. {Number(row.shippingCost || 0).toLocaleString()}</td>
+                              <td style={s.td}>Rs. {Number(row.marketingCost || 0).toLocaleString()}</td>
+                              <td style={{ ...s.td, fontWeight: 'bold', color: Number(row.netProfit || 0) >= 0 ? '#0e7a6d' : '#e74c3c' }}>Rs. {Number(row.netProfit || 0).toLocaleString()}</td>
+                              <td style={s.td}>{row.marginPercent}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Customer Segmentation */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#1a1a2e' }}>👥 Customer Segmentation</h3>
+                  </div>
+
+                  <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}><div style={{ fontSize: '12px', color: '#666' }}>VIP Customers</div><div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#1a1a2e' }}>{analyticsData.customerSegmentation?.summary?.vipCount || 0}</div></div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}><div style={{ fontSize: '12px', color: '#666' }}>Repeat Customers</div><div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#1a1a2e' }}>{analyticsData.customerSegmentation?.summary?.repeatCount || 0}</div></div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}><div style={{ fontSize: '12px', color: '#666' }}>High Spenders</div><div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#1a1a2e' }}>{analyticsData.customerSegmentation?.summary?.highSpenderCount || 0}</div></div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}><div style={{ fontSize: '12px', color: '#666' }}>Inactive Customers</div><div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#1a1a2e' }}>{analyticsData.customerSegmentation?.summary?.inactiveCount || 0}</div></div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}><div style={{ fontSize: '12px', color: '#666' }}>Cart Abandoners</div><div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#1a1a2e' }}>{analyticsData.customerSegmentation?.summary?.cartAbandonerCount || 0}</div></div>
+                  </div>
+
+                  <div style={{ padding: '0 16px 16px 16px' }}>
+                    <div style={s.tableWrap}>
+                      <table style={s.table}>
+                        <thead>
+                          <tr style={s.thead}>
+                            {['High Spender', 'Email', 'Total Spent', 'Orders', 'Last Order'].map(h => (<th key={h} style={s.th}>{h}</th>))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(analyticsData.customerSegmentation?.highSpenders || []).slice(0, 12).map((row, i) => (
+                            <tr key={`${row.userId}-${i}`} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                              <td style={s.td}>{row.name}</td>
+                              <td style={s.td}>{row.email}</td>
+                              <td style={{ ...s.td, fontWeight: 'bold', color: '#0e7a6d' }}>Rs. {Number(row.totalSpent || 0).toLocaleString()}</td>
+                              <td style={s.td}>{row.totalOrders}</td>
+                              <td style={s.td}>{row.lastOrderAt ? new Date(row.lastOrderAt).toLocaleDateString() : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Search Intelligence */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#1a1a2e' }}>🔎 Search Intelligence</h3>
+                  </div>
+
+                  <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px' }}>
+                    <div style={{ border: '1px solid #ececec', borderRadius: '10px', overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 12px', backgroundColor: '#fafafa', fontWeight: 'bold', fontSize: '13px' }}>Most Searched Keywords</div>
+                      <div style={{ maxHeight: '220px', overflow: 'auto' }}>
+                        {(analyticsData.searchIntelligence?.topKeywords || []).slice(0, 10).map((row, i) => (
+                          <div key={`${row.keyword}-${i}`} style={{ padding: '10px 12px', borderTop: '1px solid #f3f3f3', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{row.keyword}</span><b>{row.count}</b>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ border: '1px solid #ececec', borderRadius: '10px', overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 12px', backgroundColor: '#fafafa', fontWeight: 'bold', fontSize: '13px' }}>Searches With No Results</div>
+                      <div style={{ maxHeight: '220px', overflow: 'auto' }}>
+                        {(analyticsData.searchIntelligence?.noResultSearches || []).slice(0, 10).map((row, i) => (
+                          <div key={`${row.keyword}-${i}`} style={{ padding: '10px 12px', borderTop: '1px solid #f3f3f3', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{row.keyword}</span><b style={{ color: '#e74c3c' }}>{row.count}</b>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ border: '1px solid #ececec', borderRadius: '10px', overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 12px', backgroundColor: '#fafafa', fontWeight: 'bold', fontSize: '13px' }}>Trending Searches (7 days)</div>
+                      <div style={{ maxHeight: '220px', overflow: 'auto' }}>
+                        {(analyticsData.searchIntelligence?.trendingSearches || []).slice(0, 10).map((row, i) => (
+                          <div key={`${row.keyword}-trend-${i}`} style={{ padding: '10px 12px', borderTop: '1px solid #f3f3f3', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{row.keyword}</span><b style={{ color: '#0e7a6d' }}>{row.count}</b>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ border: '1px solid #ececec', borderRadius: '10px', overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 12px', backgroundColor: '#fafafa', fontWeight: 'bold', fontSize: '13px' }}>Misspelled Search Patterns</div>
+                      <div style={{ maxHeight: '220px', overflow: 'auto' }}>
+                        {(analyticsData.searchIntelligence?.misspelledSearches || []).slice(0, 10).map((row, i) => (
+                          <div key={`${row.originalKeyword}-${i}`} style={{ padding: '10px 12px', borderTop: '1px solid #f3f3f3', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span><b>{row.originalKeyword}</b> → {row.correctedKeyword}</span>
+                            <span style={{ fontSize: '12px', color: '#777' }}>Count: {row.count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Return / Refund Analytics */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#1a1a2e' }}>↩️ Return & Refund Analytics</h3>
+                  </div>
+
+                  <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px' }}>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}><div style={{ fontSize: '12px', color: '#666' }}>Returned Orders</div><div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold' }}>{analyticsData.returnRefundAnalytics?.summary?.totalReturnedOrders || 0}</div></div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}><div style={{ fontSize: '12px', color: '#666' }}>Refund Loss</div><div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold', color: '#e74c3c' }}>Rs. {(analyticsData.returnRefundAnalytics?.summary?.refundLoss || 0).toLocaleString()}</div></div>
+                    <div style={{ border: '1px solid #eee', borderRadius: '10px', padding: '12px' }}><div style={{ fontSize: '12px', color: '#666' }}>Defective Returns</div><div style={{ marginTop: '6px', fontSize: '22px', fontWeight: 'bold' }}>{analyticsData.returnRefundAnalytics?.summary?.defectiveCount || 0}</div></div>
+                  </div>
+
+                  <div style={{ padding: '0 16px 16px 16px' }}>
+                    <div style={s.tableWrap}>
+                      <table style={s.table}>
+                        <thead>
+                          <tr style={s.thead}>
+                            {['Product', 'Returns', 'Refunded Amount', 'Defective Returns'].map(h => (<th key={h} style={s.th}>{h}</th>))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(analyticsData.returnRefundAnalytics?.mostReturnedProducts || []).slice(0, 12).map((row, i) => (
+                            <tr key={`${row.productId}-${i}`} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                              <td style={s.td}>{row.productName}</td>
+                              <td style={s.td}>{row.returns}</td>
+                              <td style={s.td}>Rs. {Number(row.refundedAmount || 0).toLocaleString()}</td>
+                              <td style={s.td}>{row.defectiveReturns || 0}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Supplier / Vendor Intelligence */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#1a1a2e' }}>🏭 Supplier Intelligence</h3>
+                  </div>
+                  <div style={s.tableWrap}>
+                    <table style={s.table}>
+                      <thead>
+                        <tr style={s.thead}>
+                          {['Supplier', 'Products', 'Revenue', 'Margin', 'Avg Margin %', 'Avg Delivery Days', 'Quality Score', 'Quality Issues'].map(h => (<th key={h} style={s.th}>{h}</th>))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(analyticsData.supplierIntelligence?.suppliers || []).slice(0, 12).map((row, i) => (
+                          <tr key={`${row.supplier}-${i}`} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                            <td style={s.td}>{row.supplier}</td>
+                            <td style={s.td}>{row.products}</td>
+                            <td style={s.td}>Rs. {Number(row.revenue || 0).toLocaleString()}</td>
+                            <td style={s.td}>Rs. {Number(row.margin || 0).toLocaleString()}</td>
+                            <td style={s.td}>{row.avgMarginRate}%</td>
+                            <td style={s.td}>{row.avgDeliveryDays}</td>
+                            <td style={s.td}>{row.avgQualityScore}</td>
+                            <td style={{ ...s.td, color: row.qualityIssues > 0 ? '#e74c3c' : '#2ecc71', fontWeight: 'bold' }}>{row.qualityIssues}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Marketing Attribution */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#1a1a2e' }}>📣 Marketing Attribution</h3>
+                  </div>
+                  <div style={s.tableWrap}>
+                    <table style={s.table}>
+                      <thead>
+                        <tr style={s.thead}>
+                          {['Source', 'Orders', 'Revenue'].map(h => (<th key={h} style={s.th}>{h}</th>))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(analyticsData.marketingAttribution || []).map((row, i) => (
+                          <tr key={`${row.source}-${i}`} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                            <td style={s.td}>{row.source}</td>
+                            <td style={s.td}>{row.orders}</td>
+                            <td style={{ ...s.td, fontWeight: 'bold', color: '#0e7a6d' }}>Rs. {Number(row.revenue || 0).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Best Sellers */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#1a1a2e' }}>Top Selling Products (Last 30 Days)</h3>
+                  </div>
+                  <div style={s.tableWrap}>
+                    <table style={s.table}>
+                      <thead>
+                        <tr style={s.thead}>
+                          {['Product', 'Qty Sold', 'Revenue'].map(h => (<th key={h} style={s.th}>{h}</th>))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(analyticsData.bestSellers || []).map((item, i) => (
+                          <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                            <td style={s.td}>{item.productName}</td>
+                            <td style={s.td}>{item.totalQuantitySold}</td>
+                              <td style={{ ...s.td, fontWeight: 'bold', color: '#0e7a6d' }}>Rs. {item.totalRevenue?.toLocaleString() || '0'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Low Stock Products */}
+                {(analyticsData.lowStockProducts || []).length > 0 && (
+                  <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                    <div style={{ padding: '16px', borderBottom: '1px solid #eee', backgroundColor: '#fff3cd' }}>
+                      <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#856404' }}>⚠️ Low Stock Products</h3>
+                    </div>
+                    <div style={s.tableWrap}>
+                      <table style={s.table}>
+                        <thead>
+                          <tr style={s.thead}>
+                            {['Product', 'Stock', 'Fabric'].map(h => (<th key={h} style={s.th}>{h}</th>))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {analyticsData.lowStockProducts.map((item, i) => (
+                            <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                              <td style={s.td}>{item.name}</td>
+                              <td style={{ ...s.td, fontWeight: 'bold', color: item.stock === 0 ? '#e74c3c' : '#f0ad4e' }}>{item.stock}</td>
+                              <td style={s.td}>{item.fabricType}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Payment Methods */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#1a1a2e' }}>Payment Methods</h3>
+                  </div>
+                  <div style={s.tableWrap}>
+                    <table style={s.table}>
+                      <thead>
+                        <tr style={s.thead}>
+                          {['Method', 'Orders', 'Revenue'].map(h => (<th key={h} style={s.th}>{h}</th>))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(analyticsData.paymentMethods || []).map((item, i) => (
+                          <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                            <td style={s.td}>{item._id || 'Unknown'}</td>
+                            <td style={s.td}>{item.count}</td>
+                              <td style={{ ...s.td, fontWeight: 'bold', color: '#0e7a6d' }}>Rs. {item.revenue?.toLocaleString() || '0'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Recent Orders */}
+                <div style={{ backgroundColor: '#fff', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '16px', borderBottom: '1px solid #eee' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold', color: '#1a1a2e' }}>Recent Orders (Last 20)</h3>
+                  </div>
+                  <div style={s.tableWrap}>
+                    <table style={s.table}>
+                      <thead>
+                        <tr style={s.thead}>
+                          {['Customer', 'Order Date', 'Amount', 'Status', 'Payment'].map(h => (<th key={h} style={s.th}>{h}</th>))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(analyticsData.recentOrders || []).map((order, i) => (
+                          <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                            <td style={s.td}>{order.user?.name || 'Unknown'}</td>
+                            <td style={s.td}>{new Date(order.createdAt).toLocaleDateString()}</td>
+                            <td style={s.td}>Rs. {order.totalAmount?.toLocaleString() || '0'}</td>
+                            <td style={s.td}><span style={{ backgroundColor: order.orderStatus === 'Delivered' ? '#d4edda' : '#fff3cd', color: order.orderStatus === 'Delivered' ? '#155724' : '#856404', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' }}>{order.orderStatus}</span></td>
+                            <td style={s.td}>{order.paymentStatus}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>No analytics data available</div>
+            )}
           </>
         )}
 
@@ -1231,10 +2123,21 @@ const s = {
   discountSelectionList: { maxHeight: '220px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '8px', padding: '8px', backgroundColor: '#fcfcfc' },
   discountSelectionItem: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 4px', fontSize: '13px', color: '#333' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
+  headerActions: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' },
   heading: { fontSize: '24px', color: '#1a1a2e', margin: 0 },
   addBtn: { backgroundColor: '#e94560', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' },
+  selectToggleBtn: { backgroundColor: '#eaf3ff', color: '#235cab', border: '1px solid #c8dcff', padding: '10px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' },
+  bulkClearSelectedBtn: { backgroundColor: '#fff3cd', color: '#856404', border: '1px solid #f0db93', padding: '10px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' },
+  bulkClearAllBtn: { backgroundColor: '#f8d7da', color: '#721c24', border: '1px solid #eab7be', padding: '10px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' },
   form: { backgroundColor: 'white', padding: '24px', borderRadius: '12px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' },
   formTitle: { fontSize: '18px', color: '#1a1a2e', marginTop: 0, marginBottom: '16px' },
+  topSubmitRow: { display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' },
+  topSubmitBtn: { backgroundColor: '#1a1a2e', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' },
+  editingPreviewRow: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', padding: '10px', border: '1px solid #efefef', borderRadius: '8px', backgroundColor: '#fcfcfc' },
+  editingPreviewImage: { width: '56px', height: '56px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #eee', flexShrink: 0 },
+  editingPreviewFallback: { width: '56px', height: '56px', borderRadius: '8px', border: '1px solid #eee', color: '#9a9a9a', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', flexShrink: 0 },
+  editingPreviewTitle: { fontSize: '14px', fontWeight: 'bold', color: '#1a1a2e' },
+  editingPreviewSub: { fontSize: '12px', color: '#666', marginTop: '2px' },
   formSection: { fontSize: '13px', fontWeight: 'bold', color: '#555', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '8px 0 4px', borderBottom: '2px solid #e94560', marginBottom: '16px', marginTop: '8px' },
   formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' },
   label: { display: 'block', fontSize: '13px', fontWeight: 'bold', color: '#555', marginBottom: '5px' },
@@ -1252,10 +2155,16 @@ const s = {
   removeImageBtn: { width: '100%', border: 'none', backgroundColor: '#f8d7da', color: '#721c24', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', padding: '6px 8px' },
   submitBtn: { marginTop: '16px', backgroundColor: '#1a1a2e', color: 'white', border: 'none', padding: '12px 28px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' },
   tableWrap: { backgroundColor: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' },
+  filterBar: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '10px', marginBottom: '16px', backgroundColor: '#fff', borderRadius: '10px', padding: '12px', border: '1px solid #eee' },
   table: { width: '100%', borderCollapse: 'collapse' },
   thead: { backgroundColor: '#1a1a2e' },
   th: { padding: '14px 16px', color: 'white', textAlign: 'left', fontSize: '13px', fontWeight: 'bold' },
   td: { padding: '12px 16px', fontSize: '14px', borderBottom: '1px solid #f0f0f0', verticalAlign: 'middle' },
+  productInfoCell: { display: 'flex', alignItems: 'center', gap: '10px' },
+  productTableThumb: { width: '44px', height: '44px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #ececec', flexShrink: 0 },
+  productTableThumbFallback: { width: '44px', height: '44px', borderRadius: '8px', border: '1px solid #ececec', color: '#a0a0a0', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', flexShrink: 0 },
+  productInfoName: { fontWeight: 'bold', color: '#1a1a2e', lineHeight: 1.25 },
+  productInfoHint: { fontSize: '11px', color: '#7d7d7d', marginTop: '2px' },
   editBtn: { backgroundColor: '#fff3cd', color: '#856404', border: 'none', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', marginRight: '6px', fontSize: '12px' },
   delBtn: { backgroundColor: '#f8d7da', color: '#721c24', border: 'none', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' },
 };

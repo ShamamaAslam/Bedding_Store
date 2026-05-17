@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { getEffectivePrice } from '../utils/pricing';
+import { trackCartEvent } from '../utils/behaviorTracker';
 
 const CartContext = createContext();
 
@@ -23,6 +24,17 @@ export const CartProvider = ({ children }) => {
   }, [cartItems]);
 
   const addToCart = (product) => {
+    trackCartEvent({
+      action: 'add_to_cart',
+      productId: product?._id,
+      quantity: product?.quantity || 1,
+      metadata: {
+        source: 'cart_context',
+        selectedSize: product?.selectedSize || '',
+        selectedColor: product?.selectedColor || ''
+      }
+    });
+
     setCartItems(prev => {
       const exists = prev.find(
         item => item._id === product._id &&

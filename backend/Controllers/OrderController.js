@@ -4,7 +4,17 @@ const Product = require('../Models/Products');
 // Create new order
 const createOrder = async (req, res) => {
   try {
-    const { items, totalAmount, shippingAddress, paymentMethod, paymentStatus, stripePaymentId, notes } = req.body;
+    const {
+      items,
+      totalAmount,
+      shippingAddress,
+      paymentMethod,
+      paymentStatus,
+      stripePaymentId,
+      notes,
+      marketingSource,
+      checkoutSessionId
+    } = req.body;
 
     // Validate stock and update product quantities
     for (const item of items) {
@@ -36,6 +46,8 @@ const createOrder = async (req, res) => {
       totalAmount,
       shippingAddress,
       paymentMethod,
+      marketingSource: marketingSource || 'direct',
+      checkoutSessionId: checkoutSessionId || '',
       paymentStatus: paymentStatus || 'Pending',
       stripePaymentId: stripePaymentId || null,
       notes
@@ -137,9 +149,29 @@ const getAllOrders = async (req, res) => {
 // Admin: Update order status
 const updateOrderStatus = async (req, res) => {
   try {
-    const { orderStatus, trackingNumber } = req.body;
+    const { orderStatus, trackingNumber, returnReason, isDefective, refundAmount } = req.body;
 
     const updateData = { orderStatus, trackingNumber };
+
+    if (orderStatus === 'Delivered') {
+      updateData.deliveredAt = new Date();
+    }
+
+    if (typeof returnReason === 'string') {
+      updateData.returnReason = returnReason;
+    }
+
+    if (typeof isDefective === 'boolean') {
+      updateData.isDefective = isDefective;
+    }
+
+    if (Number.isFinite(Number(refundAmount))) {
+      updateData.refundAmount = Math.max(0, Number(refundAmount));
+    }
+
+    if ((orderStatus === 'Cancelled' || updateData.refundAmount > 0) && !updateData.returnedAt) {
+      updateData.returnedAt = new Date();
+    }
 
     if (orderStatus === 'Delivered') {
       const existingOrder = await Order.findById(req.params.id).select('paymentMethod paymentStatus');

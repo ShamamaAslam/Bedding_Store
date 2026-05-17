@@ -27,6 +27,15 @@ const normalizeColorValue = (value) => {
   return value.trim();
 };
 
+const parseShadeCategories = (value) => {
+  const allowed = new Set(['light', 'dark']);
+  const values = parseArrayField(value)
+    .map((item) => String(item).trim().toLowerCase())
+    .filter((item) => allowed.has(item));
+
+  return Array.from(new Set(values));
+};
+
 const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const parseSizePricesField = (value) => {
@@ -142,6 +151,25 @@ const buildProductPayload = (req, { forUpdate = false } = {}) => {
 
   if (body.price !== undefined && body.price !== '') payload.price = Number(body.price);
   if (body.stock !== undefined && body.stock !== '') payload.stock = Number(body.stock);
+  if (body.costPrice !== undefined && body.costPrice !== '') payload.costPrice = Number(body.costPrice);
+  if (body.shippingCost !== undefined && body.shippingCost !== '') payload.shippingCost = Number(body.shippingCost);
+  if (body.marketingCost !== undefined && body.marketingCost !== '') payload.marketingCost = Number(body.marketingCost);
+
+  const supplierName = typeof body.supplierName === 'string' ? body.supplierName.trim() : '';
+  const supplierAvgDeliveryDays = body.supplierAvgDeliveryDays !== undefined && body.supplierAvgDeliveryDays !== ''
+    ? Number(body.supplierAvgDeliveryDays)
+    : undefined;
+  const supplierQualityScore = body.supplierQualityScore !== undefined && body.supplierQualityScore !== ''
+    ? Number(body.supplierQualityScore)
+    : undefined;
+
+  if (supplierName || supplierAvgDeliveryDays !== undefined || supplierQualityScore !== undefined) {
+    payload.supplier = {
+      name: supplierName,
+      ...(supplierAvgDeliveryDays !== undefined ? { avgDeliveryDays: supplierAvgDeliveryDays } : {}),
+      ...(supplierQualityScore !== undefined ? { qualityScore: supplierQualityScore } : {})
+    };
+  }
 
   if (body.discountPrice === '') {
     payload.discountPrice = undefined;
@@ -150,6 +178,7 @@ const buildProductPayload = (req, { forUpdate = false } = {}) => {
   }
 
   if (body.colors !== undefined) payload.colors = parseArrayField(body.colors);
+  if (body.shadeCategories !== undefined) payload.shadeCategories = parseShadeCategories(body.shadeCategories);
   if (body.sizes !== undefined) payload.sizes = parseArrayField(body.sizes);
   if (body.sizePrices !== undefined) payload.sizePrices = parseSizePricesField(body.sizePrices);
   if (body.metaKeywords !== undefined) payload.metaKeywords = parseArrayField(body.metaKeywords);
@@ -200,11 +229,17 @@ const buildProductPayload = (req, { forUpdate = false } = {}) => {
 };
 
 const validateNonNegativeNumbers = (payload) => {
-  const numericFields = ['price', 'stock', 'discountPrice'];
+  const numericFields = ['price', 'stock', 'discountPrice', 'costPrice', 'shippingCost', 'marketingCost'];
 
   for (const field of numericFields) {
     if (payload[field] !== undefined && payload[field] !== null && payload[field] < 0) {
       return `${field} cannot be less than 0`;
+    }
+  }
+
+  if (payload?.supplier?.qualityScore !== undefined && payload.supplier.qualityScore !== null) {
+    if (payload.supplier.qualityScore < 0 || payload.supplier.qualityScore > 5) {
+      return 'supplier quality score must be between 0 and 5';
     }
   }
 
@@ -236,11 +271,11 @@ const getProducts = async (req, res) => {
     if (availability === 'in_stock') filter.stock = { $gt: 0 };
     if (availability === 'out_of_stock') filter.stock = 0;
     if (search) {
-      const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const keyword = String(search).trim();
+      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       filter.$or = [
         { name: { $regex: escaped, $options: 'i' } },
-        { description: { $regex: escaped, $options: 'i' } },
-        { fabricType: { $regex: escaped, $options: 'i' } }
+        { slug: { $regex: escaped, $options: 'i' } }
       ];
     }
     if (minPrice || maxPrice) {
@@ -322,6 +357,7 @@ const createProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
   try {
     const payload = buildProductPayload(req, { forUpdate: true });
+    const shouldUnsetDiscountPrice = payload.discountPrice === undefined && Object.prototype.hasOwnProperty.call(req.body || {}, 'discountPrice');
 
     if (payload.category && !mongoose.Types.ObjectId.isValid(payload.category)) {
       return res.status(400).json({ success: false, error: 'Invalid category selected' });
@@ -349,7 +385,16 @@ const updateProduct = async (req, res) => {
     if (validationError) {
       return res.status(400).json({ success: false, error: validationError });
     }
-    const product = await Product.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true });
+
+    if (shouldUnsetDiscountPrice) {
+      delete payload.discountPrice;
+    }
+
+    const updateDoc = shouldUnsetDiscountPrice
+      ? { $set: payload, $unset: { discountPrice: 1 } }
+      : payload;
+
+    const product = await Product.findByIdAndUpdate(req.params.id, updateDoc, { new: true, runValidators: true });
     if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
     res.json({ success: true, product });
   } catch (error) {

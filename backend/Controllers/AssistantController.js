@@ -4,18 +4,27 @@ const Category = require('../Models/Categories');
 const Order = require('../Models/Order');
 
 const ORDER_STATUSES = ['Processing', 'Confirmed', 'Shipped', 'Delivered'];
-const LIGHT_COLOR_KEYWORDS = [
+const LIGHT_COLORS = [
   'white',
   'ivory',
   'cream',
   'beige',
+  'stone',
+  'silver',
+  'champagne',
+  'yellow',
   'off white',
   'off-white',
+  'pastel',
   'blush',
+  'pink',
+  'rose',
   'sage',
+  'light green',
   'mint',
   'peach',
   'lavender',
+  'baby blue',
   'sky blue',
   'light blue',
   'light pink',
@@ -25,11 +34,12 @@ const LIGHT_COLOR_KEYWORDS = [
   'gray'
 ];
 
-const DARK_COLOR_KEYWORDS = [
+const DARK_COLORS = [
   'black',
   'charcoal',
   'graphite',
   'navy',
+  'dark blue',
   'midnight',
   'indigo',
   'maroon',
@@ -37,10 +47,13 @@ const DARK_COLOR_KEYWORDS = [
   'wine',
   'ruby',
   'plum',
+  'dark green',
   'emerald',
   'teal',
   'olive',
   'brown',
+  'red',
+  'mustard',
   'coffee',
   'mocha',
   'slate'
@@ -48,31 +61,80 @@ const DARK_COLOR_KEYWORDS = [
 
 const normalize = (text = '') => text.toString().toLowerCase().trim();
 
+const LIGHT_COLOR_SET = new Set(LIGHT_COLORS.map((color) => normalize(color)));
+const DARK_COLOR_SET = new Set(DARK_COLORS.map((color) => normalize(color)));
+
 const escapeRegex = (text = '') => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const hasWord = (value, word) => new RegExp(`\\b${escapeRegex(word)}\\b`, 'i').test(value);
-
-const buildKeywordRegex = (keyword) => new RegExp(escapeRegex(keyword), 'i');
-
-const LIGHT_COLOR_REGEXES = LIGHT_COLOR_KEYWORDS.map(buildKeywordRegex);
-const DARK_COLOR_REGEXES = DARK_COLOR_KEYWORDS.map(buildKeywordRegex);
-
 const collectExplicitToneValues = (product) => [
+  ...(product?.color ? [product.color] : []),
   ...(Array.isArray(product?.colors) ? product.colors : []),
   ...(Array.isArray(product?.images) ? product.images.map((image) => image?.color).filter(Boolean) : [])
 ]
   .map((value) => normalize(value))
   .filter(Boolean);
 
-const collectFallbackToneValues = (product) => [product?.name, product?.description]
-  .map((value) => normalize(value))
-  .filter(Boolean);
+const toBaseColor = (value = '') => {
+  const color = normalize(value).replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!color) return '';
 
-const scoreToneValues = (values = []) => {
-  const lightScore = values.reduce((score, value) => score + (isLightColorName(value) ? 1 : 0), 0);
-  const darkScore = values.reduce((score, value) => score + (isDarkColorName(value) ? 1 : 0), 0);
+  if (color.startsWith('light ')) return color;
+  if (color.startsWith('dark ')) return color;
 
-  return { lightScore, darkScore };
+  if (color === 'offwhite') return 'off white';
+  return color;
+};
+
+const hasMappedColor = (value = '', palette = []) => {
+  const normalizedValue = toBaseColor(value);
+  if (!normalizedValue) return false;
+
+  return palette.some((keyword) => {
+    const escapedKeyword = escapeRegex(normalize(keyword)).replace(/\s+/g, '\\s+');
+    return new RegExp(`(^|[^a-z])${escapedKeyword}($|[^a-z])`, 'i').test(normalizedValue);
+  });
+};
+
+const classifyColorTone = (value = '') => {
+  const color = toBaseColor(value);
+  if (!color) return null;
+
+  const isLight = color.startsWith('light ') || LIGHT_COLOR_SET.has(color) || hasMappedColor(color, LIGHT_COLORS);
+  const isDark = color.startsWith('dark ') || DARK_COLOR_SET.has(color) || hasMappedColor(color, DARK_COLORS);
+
+  if (isLight && isDark) return 'both';
+  if (isLight) return 'light';
+  if (isDark) return 'dark';
+  return null;
+};
+
+const getProductToneScore = (product) => {
+  const toneValues = collectExplicitToneValues(product);
+
+  return toneValues.reduce(
+    (score, value) => {
+      const tone = classifyColorTone(value);
+      if (tone === 'light' || tone === 'both') score.lightScore += 1;
+      if (tone === 'dark' || tone === 'both') score.darkScore += 1;
+      return score;
+    },
+    { lightScore: 0, darkScore: 0 }
+  );
+};
+
+const filterProductsByTone = (products = [], tone) => {
+  if (!tone) return products;
+
+  return products.filter((product) => {
+    const shades = Array.isArray(product?.shadeCategories) ? product.shadeCategories : [];
+    if (shades.length > 0) {
+      return shades.includes(tone);
+    }
+
+    // Safety fallback for legacy records that do not yet have shadeCategories.
+    const toneScore = getProductToneScore(product);
+    return tone === 'light' ? toneScore.lightScore > 0 : toneScore.darkScore > 0;
+  });
 };
 
 const buildProductProjection = () => ({
@@ -83,6 +145,7 @@ const buildProductProjection = () => ({
   category: 1,
   fabricType: 1,
   colors: 1,
+  shadeCategories: 1,
   images: 1,
   purchases: 1,
   views: 1,
@@ -92,12 +155,22 @@ const buildProductProjection = () => ({
 const parsePriceFromMessage = (message) => {
   const text = normalize(message);
 
-  const underMatch = text.match(/under\s*\$?\s*(\d+(?:\.\d+)?)/i) || text.match(/below\s*\$?\s*(\d+(?:\.\d+)?)/i);
-  const aboveMatch = text.match(/above\s*\$?\s*(\d+(?:\.\d+)?)/i) || text.match(/over\s*\$?\s*(\d+(?:\.\d+)?)/i);
-  const betweenMatch = text.match(/between\s*\$?\s*(\d+(?:\.\d+)?)\s*(?:and|to)\s*\$?\s*(\d+(?:\.\d+)?)/i);
+  // ✅ More robust regex patterns for price extraction
+  const underMatch = text.match(/under\s*(?:rs\.?|₹|rupees?)?\s*(\d+(?:\.\d+)?)/i) 
+    || text.match(/below\s*(?:rs\.?|₹|rupees?)?\s*(\d+(?:\.\d+)?)/i)
+    || text.match(/less than\s*(?:rs\.?|₹|rupees?)?\s*(\d+(?:\.\d+)?)/i);
+    
+  const aboveMatch = text.match(/above\s*(?:rs\.?|₹|rupees?)?\s*(\d+(?:\.\d+)?)/i) 
+    || text.match(/over\s*(?:rs\.?|₹|rupees?)?\s*(\d+(?:\.\d+)?)/i)
+    || text.match(/more than\s*(?:rs\.?|₹|rupees?)?\s*(\d+(?:\.\d+)?)/i)
+    || text.match(/(?:rs\.?|₹|rupees?)?\s*(\d+(?:\.\d+)?)\s*(?:above|onwards?)/i);
+    
+  const betweenMatch = text.match(/between\s*(?:rs\.?|₹|rupees?)?\s*(\d+(?:\.\d+)?)\s*(?:and|to)\s*(?:rs\.?|₹|rupees?)?\s*(\d+(?:\.\d+)?)/i);
+  const exactMatch = text.match(/(?:of|for|at|priced(?:\s+at)?|price(?:d)?(?:\s+is)?|cost(?:ing)?|worth)\s*(?:rs\.?|₹|rupees?)?\s*(\d+(?:\.\d+)?)/i);
 
   let minPrice;
   let maxPrice;
+  let exactPrice;
 
   if (betweenMatch) {
     minPrice = Number(betweenMatch[1]);
@@ -112,7 +185,50 @@ const parsePriceFromMessage = (message) => {
     minPrice = Number(aboveMatch[1]);
   }
 
-  return { minPrice, maxPrice };
+  if (minPrice === undefined && maxPrice === undefined && exactMatch) {
+    exactPrice = Number(exactMatch[1]);
+  }
+
+  return { minPrice, maxPrice, exactPrice };
+};
+
+const getSearchPrice = (product) => {
+  if (!product) return 0;
+
+  if (Array.isArray(product.sizePrices) && product.sizePrices.length > 0) {
+    const sizePrices = product.sizePrices
+      .map((entry) => {
+        const hasPrice = entry?.price !== undefined && entry?.price !== null && entry?.price !== '';
+        const price = Number(entry?.price);
+        return hasPrice && Number.isFinite(price) && price >= 0 ? price : null;
+      })
+      .filter((price) => price !== null);
+
+    if (sizePrices.length > 0) {
+      return Math.min(...sizePrices);
+    }
+  }
+
+  const hasDiscountPrice = product?.discountPrice !== undefined && product?.discountPrice !== null && product?.discountPrice !== '';
+  const discountPrice = Number(product?.discountPrice);
+  if (hasDiscountPrice && Number.isFinite(discountPrice) && discountPrice >= 0) {
+    return discountPrice;
+  }
+
+  const basePrice = Number(product?.price);
+  return Number.isFinite(basePrice) && basePrice >= 0 ? basePrice : 0;
+};
+
+const filterProductsByPrice = (products = [], minPrice, maxPrice, exactPrice) => {
+  if (minPrice === undefined && maxPrice === undefined && exactPrice === undefined) return products;
+
+  return products.filter((product) => {
+    const price = getSearchPrice(product);
+    if (exactPrice !== undefined) return price === exactPrice;
+    if (minPrice !== undefined && price < minPrice) return false;
+    if (maxPrice !== undefined && price > maxPrice) return false;
+    return true;
+  });
 };
 
 const parseRatingFromMessage = (message) => {
@@ -131,10 +247,44 @@ const parseQuantity = (message) => {
   return Number.isNaN(quantity) || quantity <= 0 ? 1 : quantity;
 };
 
+const normalizeCategoryText = (value = '') => normalize(value)
+  .replace(/&/g, ' and ')
+  .replace(/[^a-z0-9\s]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const toCategoryKeywords = (value = '') => normalizeCategoryText(value)
+  .split(' ')
+  .map((part) => part.trim())
+  .filter((part) => part.length > 2 && part !== 'and');
+
 const findCategoryInMessage = async (message) => {
   const categories = await Category.find({}, { name: 1 }).lean();
-  const text = normalize(message);
-  return categories.find((c) => text.includes(normalize(c.name)));
+  const text = normalizeCategoryText(message);
+
+  const exact = categories.find((category) => {
+    const categoryText = normalizeCategoryText(category?.name || '');
+    return categoryText && text.includes(categoryText);
+  });
+
+  if (exact) return exact;
+
+  // Fallback: match by category keywords (e.g. "quilts" should match "Blankets & Quilts").
+  let bestMatch = null;
+  let bestScore = 0;
+
+  categories.forEach((category) => {
+    const keywords = toCategoryKeywords(category?.name || '');
+    if (!keywords.length) return;
+
+    const score = keywords.reduce((acc, keyword) => (text.includes(keyword) ? acc + 1 : acc), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = category;
+    }
+  });
+
+  return bestScore > 0 ? bestMatch : undefined;
 };
 
 const findFabricInMessage = (message) => {
@@ -144,74 +294,27 @@ const findFabricInMessage = (message) => {
   return found ? found.charAt(0).toUpperCase() + found.slice(1) : undefined;
 };
 
-const hasLightColorVariant = (product) => {
-  const explicitToneValues = collectExplicitToneValues(product);
-  const valuesToCheck = explicitToneValues.length > 0 ? explicitToneValues : collectFallbackToneValues(product);
-
-  if (valuesToCheck.length === 0) return false;
-
-  return scoreToneValues(valuesToCheck).lightScore > 0;
-};
-
-const hasDarkColorVariant = (product) => {
-  const explicitToneValues = collectExplicitToneValues(product);
-  const valuesToCheck = explicitToneValues.length > 0 ? explicitToneValues : collectFallbackToneValues(product);
-
-  if (valuesToCheck.length === 0) return false;
-
-  return scoreToneValues(valuesToCheck).darkScore > 0;
-};
-
 const wantsLightColors = (message) => {
   const text = normalize(message);
-  return /(light\s+(?:colour|color)|light-colored|light colored|light bedsheet|light bedsheets|light bedding|pastel|soft shades|white\s+bedsheet|white\s+bedsheets|ivory\s+bedsheet|ivory\s+bedsheets|beige\s+bedsheet|beige\s+bedsheets)/.test(text);
+  return /(light\s+(?:colour|color)|light-colored|light colored)/.test(text);
 };
 
 const wantsDarkColors = (message) => {
   const text = normalize(message);
-  return /(dark\s+(?:colour|color)|dark-colored|dark colored|drak\s+(?:colour|color)|drak\s+bedsheet|drak\s+bedsheets|dark\s+bedsheet|dark\s+bedsheets|dark\s+bedding|deep shades|black\s+bedsheet|black\s+bedsheets|navy\s+bedsheet|navy\s+bedsheets)/.test(text);
+  return /(dark\s+(?:colour|color)|dark-colored|dark colored)/.test(text);
 };
 
 const mentionsBedsheets = (message) => {
   const text = normalize(message);
-  return /bedsheet|bedsheets|bed sheet|bed sheets/.test(text);
+  return /bedsheet|bedsheets|bed sheet|bed sheets|bedhseet|bedhseets|nedsheet|nedsheets/.test(text);
 };
 
-const isLightColorName = (value) => {
-  const colorValue = normalize(value);
-  if (!colorValue) return false;
+const matchesToneStrictly = (product, tone, options = {}) => {
+  const includeUnknown = Boolean(options.includeUnknown);
+  const shades = Array.isArray(product?.shadeCategories) ? product.shadeCategories : [];
+  if (shades.length > 0) return shades.includes(tone);
+  if (includeUnknown && collectExplicitToneValues(product).length === 0) return true;
 
-  if (/(?:\blight\b|\bpastel\b|\bsoft\b|\boff[-\s]?white\b)/i.test(colorValue)) return true;
-  if (/\b(?:sky|baby|powder|ice)\s*blue\b/i.test(colorValue)) return true;
-
-  return LIGHT_COLOR_KEYWORDS.some((keyword) => {
-    return hasWord(colorValue, normalize(keyword));
-  });
-};
-
-const isDarkColorName = (value) => {
-  const colorValue = normalize(value);
-  if (!colorValue) return false;
-
-  if (/(?:\bdark\b|\bdeep\b|\brich\b|\bmidnight\b)/i.test(colorValue)) return true;
-  if (/\bblue\b/i.test(colorValue) && !/\b(?:sky|baby|powder|ice|light)\s*blue\b/i.test(colorValue)) return true;
-
-  return DARK_COLOR_KEYWORDS.some((keyword) => {
-    return hasWord(colorValue, normalize(keyword));
-  });
-};
-
-const getProductToneScore = (product) => {
-  const explicitToneValues = collectExplicitToneValues(product);
-
-  if (explicitToneValues.length > 0) {
-    return scoreToneValues(explicitToneValues);
-  }
-
-  return scoreToneValues(collectFallbackToneValues(product));
-};
-
-const matchesToneStrictly = (product, tone) => {
   const { lightScore, darkScore } = getProductToneScore(product);
   if (tone === 'light') return lightScore > 0;
   if (tone === 'dark') return darkScore > 0;
@@ -237,40 +340,56 @@ const buildSearchQuery = async (message) => {
   const text = normalize(message);
   const category = await findCategoryInMessage(text);
   const fabricType = findFabricInMessage(text);
-  const { minPrice, maxPrice } = parsePriceFromMessage(text);
+  const { minPrice, maxPrice, exactPrice } = parsePriceFromMessage(text);
   const minRating = parseRatingFromMessage(text);
+  const searchHint = extractSearchHint(text);
   const lightColorOnly = wantsLightColors(text);
   const darkColorOnly = wantsDarkColors(text);
   const bedsheetRequest = mentionsBedsheets(text);
   const requestedTone = lightColorOnly ? 'light' : (darkColorOnly ? 'dark' : null);
   const useToneBedsheetSearch = bedsheetRequest && Boolean(requestedTone);
+  const hasPriceFilter = minPrice !== undefined || maxPrice !== undefined || exactPrice !== undefined;
+  const priceFocusedSearch = isPriceFocusedSearch(text, { category, fabricType, requestedTone, bedsheetRequest });
 
   const query = { isActive: true };
+  const queryConditions = [];
 
+  // ✅ Handle bedsheet + tone search with price filter
   if (useToneBedsheetSearch) {
     const bedsheetCategories = await Category.find({
       name: { $regex: /bedsheet|bed\s*sheet/i }
     }).select('_id').lean();
     const bedsheetCategoryIds = bedsheetCategories.map((item) => item._id);
 
-    query.$and = [
-      {
-        $or: [
-          ...(bedsheetCategoryIds.length > 0 ? [{ category: { $in: bedsheetCategoryIds } }] : []),
-          { name: /bedsheet|bed sheet/i },
-          { description: /bedsheet|bed sheet/i }
-        ]
-      }
-    ];
+    if (bedsheetCategoryIds.length > 0) {
+      query.category = { $in: bedsheetCategoryIds };
+    }
   } else if (category) {
     query.category = category._id;
   }
 
-  if (fabricType) query.fabricType = fabricType;
-  if (minPrice !== undefined || maxPrice !== undefined) {
-    query.price = {};
-    if (minPrice !== undefined) query.price.$gte = minPrice;
-    if (maxPrice !== undefined) query.price.$lte = maxPrice;
+  // ✅ ALWAYS apply fabric filter if detected
+  if (fabricType) {
+    query.fabricType = fabricType;
+  }
+
+  if (!priceFocusedSearch && searchHint && searchHint.length >= 2) {
+    queryConditions.push({
+      $or: [
+        { name: { $regex: escapeRegex(searchHint), $options: 'i' } },
+        { description: { $regex: escapeRegex(searchHint), $options: 'i' } }
+      ]
+    });
+  }
+
+  // Primary shade filter: use persisted admin-managed tone categories.
+  if (requestedTone) {
+    query.shadeCategories = requestedTone;
+  }
+
+  // ✅ Combine all conditions if tone search is active
+  if (queryConditions.length > 0) {
+    query.$and = queryConditions;
   }
 
   return {
@@ -280,13 +399,15 @@ const buildSearchQuery = async (message) => {
       fabricType,
       minPrice,
       maxPrice,
+      exactPrice,
+      hasPriceFilter,
       minRating,
       lightColorOnly,
       darkColorOnly,
       requestedTone,
       bedsheetRequest,
       useToneBedsheetSearch,
-      candidateLimit: lightColorOnly || bedsheetRequest ? 60 : 12
+      candidateLimit: hasPriceFilter ? 1000 : (requestedTone ? 500 : (lightColorOnly || bedsheetRequest ? 60 : 12))
     }
   };
 };
@@ -320,6 +441,7 @@ const serializeProducts = (products = []) =>
     category: p.category,
     fabricType: p.fabricType,
     colors: p.colors,
+    shadeCategories: p.shadeCategories,
     images: p.images,
     stock: p.stock,
     rating: estimateRating(p)
@@ -329,9 +451,7 @@ const dedupeProducts = (products = []) => {
   const seen = new Set();
 
   return products.filter((product) => {
-    const nameKey = normalize(product?.name || '');
-    const slugKey = normalize(product?.slug || '');
-    const key = nameKey || slugKey;
+    const key = product?._id ? product._id.toString() : '';
 
     if (!key) return true;
     if (seen.has(key)) return false;
@@ -349,6 +469,25 @@ const extractProductNameHint = (message) => {
     .trim();
 
   return text;
+};
+
+const extractSearchHint = (message) => {
+  const text = normalize(message)
+    .replace(/please|kindly|can you|could you|would you|show me|show|find|search|looking for|i want|need|give me|tell me|available|recommend|suggest|products?|items?/g, ' ')
+    .replace(/\b(?:under|below|less than|above|over|more than|between|and|to|rs\.?|rupees?|₹|price|rating|rated|stars?)\b/g, ' ')
+    .replace(/\b\d+(?:\.\d+)?\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return text;
+};
+
+const isPriceFocusedSearch = (message, filters = {}) => {
+  const text = normalize(message);
+  const hasPriceLanguage = /\b(under|below|less than|above|over|more than|between|price|priced|cost|worth|rs\.?|rupees?|₹|onwards?)\b/.test(text);
+  const hasProductTopic = Boolean(filters.category || filters.fabricType || filters.requestedTone || filters.bedsheetRequest);
+
+  return hasPriceLanguage && !hasProductTopic;
 };
 
 const detectIntent = (message) => {
@@ -497,6 +636,43 @@ const assistantSuggest = async (req, res) => {
   }
 };
 
+  const assistantSeo = async (req, res) => {
+    try {
+      const { productId, name, description, category, fabricType, colors } = req.body || {};
+
+      let product = null;
+      if (productId) {
+        if (mongoose.Types.ObjectId.isValid(productId)) {
+          product = await Product.findById(productId).populate('category', 'name').lean();
+        }
+      }
+
+      const src = product || { name, description, category: { name: category }, fabricType, colors };
+
+      const prodName = (src.name || '').toString().trim();
+      const catName = (src.category && src.category.name) ? src.category.name : (category || '');
+      const fabric = src.fabricType || fabricType || '';
+      const colorList = Array.isArray(src.colors) ? src.colors : (Array.isArray(colors) ? colors : []);
+
+      const titleCandidate = prodName
+        ? `${prodName}${catName ? ` — ${catName}` : ''} | Wajahat Fabrics`
+        : `Wajahat Fabrics — Premium Bedding`;
+
+      const descSource = (src.description || description || '').toString().trim();
+      const descCandidate = descSource
+        ? (descSource.length > 150 ? `${descSource.slice(0, 150).trim()}...` : descSource)
+        : `${prodName || 'Premium bedding'}${fabric ? ` in ${fabric}` : ''}${catName ? ` — ${catName}` : ''}. Shop premium home textiles at Wajahat Fabrics.`;
+
+      const nameParts = prodName.split(/[^a-zA-Z0-9]+/).map(p => p.toLowerCase().trim()).filter(p => p && p.length > 2);
+      const keywordSet = new Set([...(nameParts || []), ...(catName ? [catName.toLowerCase()] : []), ...(fabric ? [fabric.toLowerCase()] : []), ...colorList.map(c => c.toLowerCase()), 'bedding', 'home textiles', 'Wajahat Fabrics']);
+      const keywords = Array.from(keywordSet).slice(0, 20);
+
+      res.json({ success: true, suggestions: { metaTitle: titleCandidate, metaDescription: descCandidate, metaKeywords: keywords } });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  };
+
 const assistantChat = async (req, res) => {
   try {
     const message = (req.body.message || '').toString().trim();
@@ -522,12 +698,12 @@ const assistantChat = async (req, res) => {
       }
 
       if (filters.lightColorOnly && !filters.useToneBedsheetSearch) {
-        products = products.filter((p) => hasLightColorVariant(p));
+        products = filterProductsByTone(products, 'light');
         products = rankLightColorMatches(products);
       }
 
       if (filters.darkColorOnly && !filters.useToneBedsheetSearch) {
-        products = products.filter((p) => hasDarkColorVariant(p));
+        products = filterProductsByTone(products, 'dark');
       }
 
       if (filters.useToneBedsheetSearch) {
@@ -536,12 +712,19 @@ const assistantChat = async (req, res) => {
       }
 
       products = dedupeProducts(products);
+      products = filterProductsByPrice(products, filters.minPrice, filters.maxPrice, filters.exactPrice);
 
+      // ✅ Fallback only if no results, but preserve ALL filters
       if (!products.length && filters.bedsheetRequest && !filters.useToneBedsheetSearch) {
         const fallbackQuery = {
           isActive: true,
           name: { $regex: 'bedsheet|bed sheet', $options: 'i' }
         };
+
+        // ✅ Re-apply fabric filter in fallback
+        if (filters.fabricType) {
+          fallbackQuery.fabricType = filters.fabricType;
+        }
 
         products = await Product.find(fallbackQuery, buildProductProjection())
           .populate('category', 'name')
@@ -550,18 +733,36 @@ const assistantChat = async (req, res) => {
           .lean();
 
         if (filters.lightColorOnly) {
-          products = products.filter((p) => hasLightColorVariant(p));
+          products = filterProductsByTone(products, 'light');
           products = rankLightColorMatches(products);
         }
+
+        if (filters.darkColorOnly) {
+          products = filterProductsByTone(products, 'dark');
+        }
+
+        products = filterProductsByPrice(products, filters.minPrice, filters.maxPrice, filters.exactPrice);
       }
+
+      const unavailable = products.length === 0;
+      const pricePhrase = filters.exactPrice !== undefined
+        ? `at Rs. ${filters.exactPrice}`
+        : filters.minPrice !== undefined && filters.maxPrice !== undefined
+        ? `between Rs. ${filters.minPrice} and Rs. ${filters.maxPrice}`
+        : filters.minPrice !== undefined
+          ? `above Rs. ${filters.minPrice}`
+          : filters.maxPrice !== undefined
+            ? `under Rs. ${filters.maxPrice}`
+            : '';
 
       return res.json({
         success: true,
         intent,
         reply: products.length
           ? `I found ${products.length} products matching your search.`
-          : 'I could not find an exact match. Try relaxing price/rating filters.',
+          : `No products are available${pricePhrase ? ` ${pricePhrase}` : ''} right now.`,
         filters,
+        unavailable,
         products: serializeProducts(products),
         suggestions: ['Show trending products', 'Recommend for me', 'Add first item to cart']
       });
@@ -732,4 +933,4 @@ const assistantChat = async (req, res) => {
   }
 };
 
-module.exports = { assistantChat, assistantSuggest };
+module.exports = { assistantChat, assistantSuggest, assistantSeo };

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { getCategories, getProducts } from '../services/api';
-import { getProductImage } from '../utils/productImage';
-import { trackProductClick } from '../utils/behaviorTracker';
+import { getCategories, getProducts, getPersonalizedRecommendations } from '../services/api';
+import { getProductImage, makeAbsoluteUrl } from '../utils/productImage';
+import { trackProductClick, getBehaviorSessionId } from '../utils/behaviorTracker';
 import { getEffectivePrice, getOriginalPrice, getSaleLabel } from '../utils/pricing';
 import HeroSlider from '../components/HeroSlider';
 
@@ -23,77 +23,187 @@ const cardVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } }
 };
 
+const FALLBACK_CATEGORIES = [
+  { name: 'Bedsheets', description: 'Premium bedsheets for everyday comfort.' },
+  { name: 'Blankets & Quilts', description: 'Warm layers for cozy nights.' },
+  { name: 'Curtains', description: 'Elegant curtains for modern interiors.' },
+  { name: 'Sofa Covers', description: 'Protective and decorative sofa covers.' },
+  { name: 'Pillows & Cushions', description: 'Soft accents for stylish spaces.' },
+  { name: 'Comforters', description: 'Plush comforters for year-round comfort.' }
+];
+
 const Home = () => {
-  const [categories, setCategories] = useState([]);
+  // Start with fallback categories so the UI doesn't flash empty
+  const [categories, setCategories] = useState(FALLBACK_CATEGORIES);
+  const [categoryImages, setCategoryImages] = useState({});
   const [trending, setTrending] = useState([]);
+  const [recommended, setRecommended] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const loadHomeData = async () => {
+  const displayCategories = Array.isArray(categories) && categories.length > 0 ? categories : FALLBACK_CATEGORIES;
+  const displayTrending = trending.length > 0 ? trending : FALLBACK_CATEGORIES.slice(0, 4).map((item) => ({
+    _id: item.name,
+    name: item.name,
+    description: item.description,
+    category: { name: item.name },
+    stock: 0
+  }));
+
+  const loadHomeData = async () => {
       try {
         setLoading(true);
-        const [categoriesRes, productsRes] = await Promise.all([
-          getCategories(),
+        // Retry categories request a few times to avoid intermittent 500s
+        const fetchWithRetry = async (fn, retries = 2, delay = 800) => {
+          let lastErr;
+          for (let i = 0; i <= retries; i++) {
+            try {
+              return await fn();
+            } catch (err) {
+              lastErr = err;
+              if (i < retries) await new Promise(r => setTimeout(r, delay * (i + 1)));
+            }
+          }
+          throw lastErr;
+        };
+
+        const [categoriesRes, productsRes] = await Promise.allSettled([
+          fetchWithRetry(getCategories, 2, 600),
           getProducts({ sort: 'trending' })
         ]);
 
-        setCategories(categoriesRes.data.categories || []);
-        setTrending((productsRes.data.products || []).slice(0, 4));
+        if (categoriesRes.status === 'fulfilled') {
+          const fetched = categoriesRes.value.data.categories || [];
+          // Only replace fallback when we have at least one category from the API
+          if (Array.isArray(fetched) && fetched.length > 0) {
+            setCategories(fetched);
+
+            const imageRequests = fetched
+              .filter((cat) => cat && cat._id && !cat.image)
+              .map(async (cat) => {
+                const productRes = await getProducts({ category: cat._id, sort: 'trending' });
+                const categoryProducts = productRes?.data?.products || [];
+                const withImage = categoryProducts.find((product) => getProductImage(product));
+                return {
+                  key: cat._id,
+                  image: withImage ? getProductImage(withImage) : ''
+                };
+              });
+
+            if (imageRequests.length > 0) {
+              const imageResults = await Promise.allSettled(imageRequests);
+              const nextImages = {};
+
+              imageResults.forEach((result) => {
+                if (result.status === 'fulfilled' && result.value?.key && result.value?.image) {
+                  nextImages[result.value.key] = result.value.image;
+                }
+              });
+
+              if (Object.keys(nextImages).length > 0) {
+                setCategoryImages(nextImages);
+              }
+            }
+          }
+        }
+
+        if (productsRes.status === 'fulfilled') {
+          setTrending((productsRes.value.data.products || []).slice(0, 4));
+        }
+
+        if (categoriesRes.status === 'rejected' || productsRes.status === 'rejected') {
+          const message = categoriesRes.status === 'rejected'
+            ? (categoriesRes.reason?.response?.data?.message || categoriesRes.reason?.message)
+            : (productsRes.reason?.response?.data?.message || productsRes.reason?.message);
+          setError(message || 'Failed to load products. Please refresh.');
+        }
       } catch (err) {
         setError(err.response?.data?.message || 'Failed to load products. Please refresh.');
       } finally {
         setLoading(false);
       }
+  };
+
+  useEffect(() => {
+    loadHomeData();
+  }, []);
+
+  useEffect(() => {
+    const loadRecommended = async () => {
+      try {
+        const res = await getPersonalizedRecommendations({ sessionId: getBehaviorSessionId() });
+        if (res?.data?.success) {
+          setRecommended(res.data.recommendations || []);
+        }
+      } catch {
+        setRecommended([]);
+      }
     };
 
-    loadHomeData();
+    loadRecommended();
   }, []);
 
   return (
     <motion.div style={styles.page} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
       <HeroSlider />
 
-      <motion.div style={styles.section} variants={sectionVariants} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.2 }}>
+      <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Shop by Category</h2>
-        {error && <p style={styles.errorText}>{error}</p>}
+        {error && (
+          <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+            <p style={styles.errorText}>{error}</p>
+            <button onClick={() => { setError(''); setLoading(true); loadHomeData(); }} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: '#e94560', color: 'white', cursor: 'pointer' }}>Retry</button>
+          </div>
+        )}
         {loading && <p style={styles.loadingText}>Loading categories...</p>}
         <div style={styles.grid}>
-          {categories.map(cat => (
+          {displayCategories.map(cat => (
             <MotionLink
-              key={cat._id}
-              to={`/products?category=${cat._id}`}
+              key={cat._id || cat.name}
+              to={`/products?category=${encodeURIComponent(cat._id || cat.name)}`}
               style={styles.catCard}
               className="premium-card"
-              variants={cardVariants}
               whileHover={{ y: -6, scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
             >
-              <span style={styles.catIcon}>{getCatIcon(cat.name)}</span>
+              <div style={styles.catImageWrap}>
+                <img
+                  src={getResolvedCategoryImage(cat) || categoryImages[cat._id] || getCategoryImage(cat.name)}
+                  alt={cat.name}
+                  style={styles.catImage}
+                  onError={(event) => {
+                    event.currentTarget.src = getCategoryImage(cat.name);
+                  }}
+                />
+              </div>
               <h3 style={styles.catName}>{cat.name}</h3>
               <p style={styles.catDesc}>{cat.description}</p>
             </MotionLink>
           ))}
         </div>
-      </motion.div>
+      </div>
 
       <motion.div style={{ ...styles.section, ...styles.trendingSection }} variants={sectionVariants} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.18 }}>
         <h2 style={styles.sectionTitle}>Trending Now</h2>
         {loading && <p style={styles.loadingText}>Loading trending products...</p>}
         <div style={styles.productGrid}>
-          {trending.map(product => (
+          {displayTrending.map(product => (
             <MotionLink
               key={product._id}
-              to={`/products/${product._id}`}
+              to={trending.length > 0 ? `/products/${product._id}` : `/products?category=${encodeURIComponent(product.category?.name || product.name)}`}
               style={styles.productCard}
               className="premium-card"
-              onClick={() => trackProductClick(product._id)}
+              onClick={() => {
+                if (trending.length > 0) {
+                  trackProductClick(product._id);
+                }
+              }}
               variants={cardVariants}
               whileHover={{ y: -7, scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
             >
               <div style={styles.productImg}>
-                {getProductImage(product) ? (
+                {trending.length > 0 && getProductImage(product) ? (
                   <div style={styles.zoomWrap} className="zoom-image-wrap">
                     <img src={getProductImage(product)} alt={product.name} style={styles.productImageTag} className="zoom-target" />
                     <span style={styles.zoomPlus} className="zoom-plus-icon">+</span>
@@ -106,19 +216,28 @@ const Home = () => {
               <div style={styles.productInfo}>
                 <h3 style={styles.productName}>{product.name}</h3>
                 <p style={styles.productCat}>{product.category?.name}</p>
-                <div style={{ ...styles.stockBadge, ...(product.stock > 0 ? styles.inStock : styles.outOfStock) }}>
-                  {product.stock > 0 ? `In Stock (${product.stock})` : 'OUT OF STOCK'}
-                </div>
-                <p style={styles.productDesc}>{product.description?.slice(0, 65)}...</p>
-                {getSaleLabel(product) > 0 && (
-                  <div style={styles.saleBadge}>-{getSaleLabel(product)}% OFF</div>
+                {trending.length > 0 ? (
+                  <>
+                    <div style={{ ...styles.stockBadge, ...(product.stock > 0 ? styles.inStock : styles.outOfStock) }}>
+                      {product.stock > 0 ? `In Stock (${product.stock})` : 'OUT OF STOCK'}
+                    </div>
+                    <p style={styles.productDesc}>{product.description?.slice(0, 65)}...</p>
+                    {getSaleLabel(product) > 0 && (
+                      <div style={styles.saleBadge}>-{getSaleLabel(product)}% OFF</div>
+                    )}
+                    <div style={styles.priceRow}>
+                      {(product.discountPrice || getSaleLabel(product) > 0) && (
+                        <span style={styles.oldPrice}>Rs. {getOriginalPrice(product)}</span>
+                      )}
+                      <span style={styles.price}>Rs. {getEffectivePrice(product)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p style={styles.productDesc}>{product.description}</p>
+                    <div style={styles.saleBadge}>Browse collection</div>
+                  </>
                 )}
-                <div style={styles.priceRow}>
-                  {(product.discountPrice || getSaleLabel(product) > 0) && (
-                    <span style={styles.oldPrice}>Rs. {getOriginalPrice(product)}</span>
-                  )}
-                  <span style={styles.price}>Rs. {getEffectivePrice(product)}</span>
-                </div>
               </div>
             </MotionLink>
           ))}
@@ -127,6 +246,46 @@ const Home = () => {
           <Link to="/products" style={styles.heroBtnPrimary} className="premium-button">View All Products</Link>
         </div>
       </motion.div>
+
+      {recommended.length > 0 && (
+        <motion.div style={{ ...styles.section, ...styles.trendingSection }} variants={sectionVariants} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.18 }}>
+          <h2 style={styles.sectionTitle}>Recommended for You</h2>
+          <div style={styles.productGrid}>
+            {recommended.map(product => (
+              <MotionLink
+                key={product._id}
+                to={`/products/${product._id}`}
+                style={styles.productCard}
+                className="premium-card"
+                onClick={() => trackProductClick(product._id)}
+                variants={cardVariants}
+                whileHover={{ y: -7, scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
+              >
+                <div style={styles.productImg}>
+                  {getProductImage(product) ? (
+                    <div style={styles.zoomWrap} className="zoom-image-wrap">
+                      <img src={getProductImage(product)} alt={product.name} style={styles.productImageTag} className="zoom-target" />
+                    </div>
+                  ) : (
+                    getCatIcon(product.category?.name)
+                  )}
+                </div>
+                <div style={styles.productInfo}>
+                  <h3 style={styles.productName}>{product.name}</h3>
+                  <p style={styles.productCat}>{product.category?.name}</p>
+                  <div style={styles.priceRow}>
+                    {(product.discountPrice || getSaleLabel(product) > 0) && (
+                      <span style={styles.oldPrice}>Rs. {getOriginalPrice(product)}</span>
+                    )}
+                    <span style={styles.price}>Rs. {getEffectivePrice(product)}</span>
+                  </div>
+                </div>
+              </MotionLink>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       <footer style={styles.footer}>
         <div style={styles.footerTag}>WF BEDDING ATELIER</div>
@@ -150,6 +309,45 @@ const getCatIcon = (name) => {
     'Pillows & Cushions': '🛋️'
   };
   return icons[name] || '🛍️';
+};
+
+const normalizeCategoryName = (name = '') =>
+  String(name)
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getCategoryImage = (name) => {
+  const publicUrl = process.env.PUBLIC_URL || '';
+  const images = {
+    'unstitched fabric': `${publicUrl}/images/DUVET_COVERS_1_222916b7-096a-4cdf-89ae-4449fad927c1.webp`,
+    'semi stitched clothes': `${publicUrl}/images/IMG_7973_1080x.webp`,
+    strollers: `${publicUrl}/images/S8d4b01501640428b8b1a75225a0ec8040.webp`,
+    'prayer mats': `${publicUrl}/images/71.webp`,
+    bedsheets: `${publicUrl}/images/final_no_crop_perfect.webp`,
+    'blankets and quilts': `${publicUrl}/images/Blanket.webp`,
+    curtains: `${publicUrl}/images/collectionpage-brand-tuiss-curtains.jpg`,
+    'sofa covers': `${publicUrl}/images/images.jpg`,
+    'pillows and cushions': `${publicUrl}/images/embroidered-cushion-cover-2450762_1024x1024.jpg`,
+    comforters: `${publicUrl}/images/white%20comforter.jpg`
+  };
+
+  return images[normalizeCategoryName(name)] || `${publicUrl}/images/hero1.webp`;
+};
+
+const getResolvedCategoryImage = (category) => {
+  const value = category?.image;
+  if (!value || typeof value !== 'string') return '';
+
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  if (trimmed.startsWith('/uploads/') || trimmed.startsWith('uploads/') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return makeAbsoluteUrl(trimmed);
+  }
+
+  return trimmed;
 };
 
 const styles = {
@@ -268,6 +466,20 @@ const styles = {
     display: 'block',
     boxShadow: '0 14px 30px rgba(53, 41, 32, 0.07)',
     backdropFilter: 'blur(10px)'
+  },
+  catImageWrap: {
+    width: '100%',
+    height: '150px',
+    borderRadius: '14px',
+    overflow: 'hidden',
+    marginBottom: '12px',
+    backgroundColor: '#efe7dc'
+  },
+  catImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    display: 'block'
   },
   catIcon: { fontSize: '44px', display: 'block', marginBottom: '10px' },
   catName: { fontSize: '18px', fontWeight: 'bold', color: '#1f1a16', margin: '8px 0' },

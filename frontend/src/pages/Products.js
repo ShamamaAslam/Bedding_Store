@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { addToWishlist, getProducts, getCategories } from '../services/api';
 import { getProductImage } from '../utils/productImage';
-import { trackProductClick } from '../utils/behaviorTracker';
+import { trackProductClick, trackSearchKeyword, trackWishlistEvent } from '../utils/behaviorTracker';
 import { getEffectivePrice, getOriginalPrice, getSaleLabel } from '../utils/pricing';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -56,10 +56,14 @@ const Products = () => {
   });
   const [searchParams] = useSearchParams();
   const lastCategoryParamRef = useRef(null);
+  const searchTrackingTimerRef = useRef(null);
+  const searchDebounceTimerRef = useRef(null);
   const [filters, setFilters] = useState({
     category: searchParams.get('category') || '',
-    sort: 'newest', fabricType: '', minPrice: '', maxPrice: '', availability: '', search: ''
+    search: searchParams.get('search') || '',
+    sort: 'newest', fabricType: '', minPrice: '', maxPrice: '', availability: ''
   });
+  const [debouncedSearch, setDebouncedSearch] = useState(searchParams.get('search') || '');
 
   const clearFlash = () => {
     window.clearTimeout(window.__wfProductsFlashTimer);
@@ -76,11 +80,27 @@ const Products = () => {
   };
 
   const setFilterValue = (key, value) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
+    if (key === 'search') {
+      // Update filter immediately for UI, but debounce the actual API call
+      setFilters(prev => ({ ...prev, [key]: value }));
+      
+      // Clear existing debounce timer
+      if (searchDebounceTimerRef.current) {
+        clearTimeout(searchDebounceTimerRef.current);
+      }
+      
+      // Set new debounce timer - only update debouncedSearch after 300ms of inactivity
+      searchDebounceTimerRef.current = setTimeout(() => {
+        setDebouncedSearch(value);
+      }, 300);
+    } else {
+      setFilters(prev => ({ ...prev, [key]: value }));
+    }
   };
 
   const clearFilters = () => {
     setFilters({ category: '', sort: 'newest', fabricType: '', minPrice: '', maxPrice: '', availability: '', search: '' });
+    setDebouncedSearch('');
   };
 
   useEffect(() => {
@@ -118,9 +138,36 @@ const Products = () => {
     setFilters((prev) => (prev.category === resolvedCategory ? prev : { ...prev, category: resolvedCategory }));
   }, [searchParams, categories, filters.category]);
 
+  // Sync search parameter from URL
+  useEffect(() => {
+    const searchFromUrl = (searchParams.get('search') || '').trim();
+    if (searchFromUrl && filters.search !== searchFromUrl) {
+      setFilters((prev) => ({ ...prev, search: searchFromUrl }));
+      setDebouncedSearch(searchFromUrl); // Immediately update debounced search from URL
+    }
+  }, [searchParams.get('search')]);
+
   useEffect(() => () => {
     window.clearTimeout(window.__wfProductsFlashTimer);
+    window.clearTimeout(searchTrackingTimerRef.current);
+    clearTimeout(searchDebounceTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    const keyword = String(filters.search || '').trim();
+    window.clearTimeout(searchTrackingTimerRef.current);
+
+    if (!keyword || keyword.length < 2) return;
+
+    searchTrackingTimerRef.current = window.setTimeout(() => {
+      trackSearchKeyword(keyword, {
+        source: 'products_page',
+        resultsCount: products.length
+      });
+    }, 450);
+
+    return () => window.clearTimeout(searchTrackingTimerRef.current);
+  }, [filters.search, products.length]);
 
   useEffect(() => {
     const loadProducts = async () => {
@@ -132,7 +179,7 @@ const Products = () => {
         if (filters.category) params.category = filters.category;
         // Keep backend query narrow and deterministic; apply pricing/sort filters locally
         // so behavior matches the exact values shown on product cards.
-        if (filters.search) params.search = filters.search;
+        if (debouncedSearch) params.search = debouncedSearch;
 
         const res = await getProducts(params);
         setProducts(res.data.products || []);
@@ -145,7 +192,7 @@ const Products = () => {
     };
 
     loadProducts();
-  }, [filters.category, filters.search]);
+  }, [filters.category, debouncedSearch]);
 
   const hasValidMinPrice = filters.minPrice !== '' && Number.isFinite(Number(filters.minPrice));
   const hasValidMaxPrice = filters.maxPrice !== '' && Number.isFinite(Number(filters.maxPrice));
@@ -203,6 +250,12 @@ const Products = () => {
     event.preventDefault();
     event.stopPropagation();
 
+    // Prevent adding out-of-stock products
+    if (product.stock <= 0) {
+      setFlash(`${product.name} is out of stock`);
+      return;
+    }
+
     addToCart({
       ...product,
       quantity: 1,
@@ -230,6 +283,7 @@ const Products = () => {
     try {
       await addToWishlist(product._id);
       setWishlistedIds(prev => [...prev, product._id]);
+      trackWishlistEvent({ action: 'wishlist_add', productId: product._id });
       setFlash(`Saved ${product.name} to wishlist`);
     } catch (err) {
       setFlash(err?.response?.data?.message || 'Unable to save to wishlist');
@@ -276,16 +330,24 @@ const Products = () => {
         <div className="products-hero-orb" />
       </section>
 
-      <button
-        type="button"
-        className="mobile-filter-toggle"
-        onClick={() => setMobileFiltersOpen(prev => !prev)}
-      >
-        {mobileFiltersOpen ? 'Hide Filters' : 'Show Filters'}
-      </button>
+      <div className="products-controls-row">
+        <button
+          type="button"
+          className="filter-toggle-button"
+          aria-expanded={mobileFiltersOpen}
+          aria-controls="products-filters"
+          onClick={() => setMobileFiltersOpen(prev => !prev)}
+          title={mobileFiltersOpen ? 'Hide filters' : 'Show filters'}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M3 5h18M6 12h12M10 19h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="sr-only">Toggle filters</span>
+        </button>
+      </div>
 
       <div className="products-layout">
-        <aside className={`products-sidebar ${mobileFiltersOpen ? 'open' : ''}`}>
+        <aside id="products-filters" className={`products-sidebar ${mobileFiltersOpen ? 'open' : ''}`}>
           <div className="sidebar-glass">
             <h3 className="filter-title">Refine Collection</h3>
             <p className="filter-sub">Sharper filters. Faster browsing.</p>
@@ -457,6 +519,8 @@ const Products = () => {
                           type="button"
                           className="quick-btn primary"
                           onClick={(event) => handleAddToCart(event, product)}
+                          disabled={product.stock <= 0}
+                          style={{ opacity: product.stock <= 0 ? 0.5 : 1, cursor: product.stock <= 0 ? 'not-allowed' : 'pointer' }}
                         >
                           Add to Cart
                         </button>

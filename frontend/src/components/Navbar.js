@@ -3,8 +3,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import SearchBar from './SearchBar';
 
 const Navbar = () => {
+  const publicUrl = process.env.PUBLIC_URL || '';
   const { user, logout } = useAuth();
   const { totalItems } = useCart();
   const navigate = useNavigate();
@@ -34,13 +36,15 @@ const Navbar = () => {
     <nav style={navStyle}>
       <Link to="/" style={styles.brand} className="premium-link" aria-label="Wajahat Fabrics Home">
         <div style={styles.brandLogoShell}>
-          <img src="/brand-logo.png" alt="Wajahat Fabrics" style={styles.brandLogo} />
+          <img src={`${publicUrl}/brand-logo.png`} alt="Wajahat Fabrics" style={styles.brandLogo} />
         </div>
         <div style={styles.brandTextWrap}>
           <span style={styles.brandTitle}>Wajahat Fabrics</span>
           <span style={styles.brandSub}>And Bedding Store</span>
         </div>
       </Link>
+
+      <SearchBar />
 
       <div style={styles.links}>
         <Link to="/products" style={styles.link} className="premium-link">Products</Link>
@@ -80,15 +84,16 @@ const Navbar = () => {
 const styles = {
   nav: {
     display: 'flex',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    gap: '14px',
+    gap: '18px',
     padding: '12px clamp(14px, 3.5vw, 34px)',
     minHeight: '92px',
     position: 'sticky',
     top: 0,
     zIndex: 1000,
-    transition: 'background-color 260ms ease, box-shadow 260ms ease, border-color 260ms ease'
+    transition: 'background-color 260ms ease, box-shadow 260ms ease, border-color 260ms ease',
+    flexWrap: 'wrap'
   },
   navOverlay: {
     background: 'rgba(255, 252, 247, 0.18)',
@@ -151,7 +156,14 @@ const styles = {
     color: '#b27b3d',
     fontWeight: 700
   },
-  links: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' },
+  links: { 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: '10px', 
+    flexWrap: 'wrap', 
+    justifyContent: 'flex-end',
+    marginLeft: 'auto'
+  },
   link: { color: '#554a43', textDecoration: 'none', fontSize: '14px', padding: '7px 10px', borderRadius: '8px' },
   username: { color: '#74675f', fontSize: '13px', padding: '0 4px' },
   cartBtn: {

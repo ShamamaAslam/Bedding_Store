@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { assistantChat, assistantSuggest } from '../services/api';
 import { useCart } from '../context/CartContext';
-import { getRecentlyViewedProducts } from '../utils/behaviorTracker';
+import { getRecentlyViewedProducts, trackSearchKeyword } from '../utils/behaviorTracker';
 import { getProductImage } from '../utils/productImage';
 import { getEffectivePrice } from '../utils/pricing';
 
@@ -11,12 +11,13 @@ const SESSION_ID_KEY = 'wf_ai_session_id';
 const COUPON_KEY = 'wf_applied_coupon';
 const DEFAULT_CHAT_WIDTH = 430;
 const DEFAULT_CHAT_HEIGHT = 720;
-const MIN_CHAT_WIDTH = 320;
-const MIN_CHAT_HEIGHT = 420;
+const MIN_CHAT_WIDTH = 240;
+const MIN_CHAT_HEIGHT = 360;
 
 const quickPrompts = [
   'Show me cotton bedsheets under 3000',
   'Recommend products for me',
+  'Show me All light colour Bedsheets',
   'Where is my order?',
   'Apply SAVE10'
 ];
@@ -29,16 +30,19 @@ const getSessionId = () => {
   return created;
 };
 
-const ProductRow = ({ title, products, maxItems = 4 }) => {
+const ProductRow = ({ title, products, maxItems = 4, layout }) => {
   if (!products?.length) return null;
+
+  const gridMinWidth = layout?.compact ? '104px' : layout?.narrow ? '120px' : '140px';
+  const gridGap = layout?.compact ? '6px' : '8px';
 
   return (
     <div style={{ marginTop: '10px' }}>
       <div style={styles.sectionTitle}>{title}</div>
-      <div style={styles.productGrid}>
+      <div style={{ ...styles.productGrid, gridTemplateColumns: `repeat(auto-fit, minmax(${gridMinWidth}, 1fr))`, gap: gridGap }}>
         {products.slice(0, maxItems).map((p) => (
-          <Link key={p._id} to={`/products/${p.slug || p._id}`} style={styles.productCard}>
-            <div style={styles.productThumbWrap}>
+          <Link key={p._id} to={`/products/${p.slug || p._id}`} style={{ ...styles.productCard, padding: layout?.compact ? '6px' : '7px' }}>
+            <div style={{ ...styles.productThumbWrap, marginBottom: layout?.compact ? '4px' : '6px' }}>
               {getProductImage(p) ? (
                 <img src={getProductImage(p)} alt={p.name} style={styles.productThumb} />
               ) : (
@@ -54,12 +58,23 @@ const ProductRow = ({ title, products, maxItems = 4 }) => {
   );
 };
 
-const MessageBubble = ({ message, onPromptClick }) => {
-  const isAssistant = message.role === 'assistant';
+const AvailabilityNotice = ({ message }) => {
+  if (!message?.unavailable) return null;
 
   return (
-    <div style={{ ...styles.message, ...(isAssistant ? styles.assistantMsg : styles.userMsg) }}>
-      <p style={{ margin: 0, lineHeight: 1.45 }}>{message.text}</p>
+    <div style={styles.unavailableBox}>
+      No products are available for this search right now.
+    </div>
+  );
+};
+
+const MessageBubble = ({ message, onPromptClick, layout }) => {
+  const isAssistant = message.role === 'assistant';
+  const bubbleMaxWidth = layout?.compact ? '100%' : layout?.narrow ? '96%' : '92%';
+
+  return (
+    <div style={{ ...styles.message, ...(isAssistant ? styles.assistantMsg : styles.userMsg), maxWidth: bubbleMaxWidth }}>
+      <p style={{ margin: 0, lineHeight: 1.45, whiteSpace: 'pre-wrap', overflowWrap: 'break-word', wordWrap: 'break-word' }}>{message.text}</p>
 
       {message.order?.timeline?.length > 0 && (
         <div style={styles.timelineWrap}>
@@ -72,10 +87,11 @@ const MessageBubble = ({ message, onPromptClick }) => {
         </div>
       )}
 
-      <ProductRow title="Results" products={message.products} maxItems={12} />
-      <ProductRow title="Trending" products={message.recommendations?.trending} />
-      <ProductRow title="Personalized" products={message.recommendations?.personalized} />
-      <ProductRow title="Customers Also Bought" products={message.recommendations?.alsoBought} />
+      <ProductRow title="Results" products={message.products} maxItems={12} layout={layout} />
+      <AvailabilityNotice message={message} />
+      <ProductRow title="Trending" products={message.recommendations?.trending} layout={layout} />
+      <ProductRow title="Personalized" products={message.recommendations?.personalized} layout={layout} />
+      <ProductRow title="Customers Also Bought" products={message.recommendations?.alsoBought} layout={layout} />
 
       {message.suggestions?.length > 0 && (
         <div style={styles.suggestionWrap}>
@@ -96,6 +112,7 @@ const ChatAssistant = () => {
   const [windowSize, setWindowSize] = useState({ width: DEFAULT_CHAT_WIDTH, height: DEFAULT_CHAT_HEIGHT });
   const resizeStartRef = useRef(null);
   const bodyRef = useRef(null);
+  const isAtBottomRef = useRef(true);
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -122,8 +139,16 @@ const ChatAssistant = () => {
 
   useEffect(() => {
     if (!open || !bodyRef.current) return;
-    bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    if (isAtBottomRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
   }, [messages, loading, open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    return undefined;
+  }, [open]);
 
   useEffect(() => () => {
     window.removeEventListener('mousemove', handleResizeMove);
@@ -131,11 +156,13 @@ const ChatAssistant = () => {
   }, []);
 
   const clampSize = (nextWidth, nextHeight) => {
-    const maxWidth = Math.max(MIN_CHAT_WIDTH, window.innerWidth - 24);
-    const maxHeight = Math.max(MIN_CHAT_HEIGHT, window.innerHeight - 24);
+    const maxWidth = Math.max(MIN_CHAT_WIDTH, window.innerWidth - 12);
+    const maxHeight = Math.max(MIN_CHAT_HEIGHT, window.innerHeight - 12);
+    const minWidth = Math.min(MIN_CHAT_WIDTH, maxWidth);
+    const minHeight = Math.min(MIN_CHAT_HEIGHT, maxHeight);
     return {
-      width: Math.min(Math.max(nextWidth, MIN_CHAT_WIDTH), maxWidth),
-      height: Math.min(Math.max(nextHeight, MIN_CHAT_HEIGHT), maxHeight)
+      width: Math.min(Math.max(nextWidth, minWidth), maxWidth),
+      height: Math.min(Math.max(nextHeight, minHeight), maxHeight)
     };
   };
 
@@ -212,6 +239,8 @@ const ChatAssistant = () => {
     setAutoSuggestions([]);
     setLoading(true);
 
+    trackSearchKeyword(prompt, { source: 'assistant_chat' });
+
     try {
       const payload = {
         message: prompt,
@@ -253,6 +282,29 @@ const ChatAssistant = () => {
     }
   };
 
+  const layout = useMemo(() => {
+    const width = windowSize.width;
+    return {
+      compact: width < 360,
+      narrow: width < 460,
+      medium: width >= 460 && width < 620,
+      wide: width >= 620
+    };
+  }, [windowSize.width]);
+
+  const bodyPadding = layout.compact ? '8px' : layout.narrow ? '10px' : '12px';
+  const inputDirection = layout.narrow ? 'column' : 'row';
+  const inputButtonWidth = layout.narrow ? '100%' : 'auto';
+  const headerSubText = layout.compact ? 'Search, recs, orders' : 'Product search, recommendations, order help';
+
+  const handleMessageStreamScroll = () => {
+    const stream = bodyRef.current;
+    if (!stream) return;
+
+    const distanceFromBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight;
+    isAtBottomRef.current = distanceFromBottom < 80;
+  };
+
   return (
     <>
       {!open && (
@@ -262,72 +314,78 @@ const ChatAssistant = () => {
       )}
 
       {open && (
-        <div style={styles.overlay} onClick={() => setOpen(false)}>
-          <div style={{ ...styles.window, width: `min(${windowSize.width}px, calc(100vw - 24px))`, height: `min(${windowSize.height}px, calc(100vh - 24px))` }} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.header}>
-              <div>
-                <div style={styles.headerTitle}>WF AI Concierge</div>
-                <div style={styles.headerSub}>Product search, recommendations, order help</div>
-              </div>
-              <button style={styles.closeBtn} className="hover-btn" onClick={() => setOpen(false)} aria-label="Close AI Help">×</button>
+        <div
+          style={{ ...styles.window, width: `min(${windowSize.width}px, calc(100vw - 12px))`, height: `min(${windowSize.height}px, calc(100vh - 12px))` }}
+        >
+          <div style={styles.header}>
+            <div>
+              <div style={styles.headerTitle}>WF AI Concierge</div>
+              <div style={styles.headerSub}>{headerSubText}</div>
             </div>
+            <button style={styles.closeBtn} className="hover-btn" onClick={() => setOpen(false)} aria-label="Close AI Help">×</button>
+          </div>
 
-            <div style={styles.body} ref={bodyRef}>
+          <div style={{ ...styles.body, padding: bodyPadding }}>
+            <div
+              style={styles.messageStream}
+              ref={bodyRef}
+              onScroll={handleMessageStreamScroll}
+            >
               {messages.map((m, idx) => (
-                <MessageBubble key={`${m.role}-${idx}`} message={m} onPromptClick={sendMessage} />
+                <MessageBubble key={`${m.role}-${idx}`} message={m} onPromptClick={sendMessage} layout={layout} />
               ))}
               {loading && <div style={{ ...styles.message, ...styles.assistantMsg }}>Thinking...</div>}
             </div>
+          </div>
 
-            <div style={styles.inputWrap}>
-              <div style={styles.quickRow}>
-                {quickPrompts.map((prompt) => (
-                  <button key={prompt} type="button" style={styles.quickChip} className="chat-chip" onClick={() => sendMessage(prompt)}>{prompt}</button>
-                ))}
-              </div>
-
-              {autoSuggestions.length > 0 && (
-                <div style={styles.autoBox}>
-                  {autoSuggestions.slice(0, 5).map((s, i) => (
-                    <button
-                      key={`${s.value}-${i}`}
-                      type="button"
-                      style={styles.autoItem}
-                      className="chat-chip"
-                      onClick={() => {
-                        setInput(s.value);
-                        setAutoSuggestions([]);
-                      }}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div style={styles.inputRow}>
-                <input
-                  style={styles.input}
-                  value={input}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setInput(next);
-                    runAutocomplete(next);
-                  }}
-                  placeholder="Ask anything about products, orders, cart..."
-                  onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                />
-                <button style={styles.sendBtn} className="hover-btn" onClick={() => sendMessage()} disabled={loading}>Send</button>
-              </div>
+          <div style={styles.inputWrap}>
+            <div className="chat-quick-row" style={{ ...styles.quickRow, gap: layout.compact ? '4px' : '6px' }}>
+              {quickPrompts.map((prompt) => (
+                <button key={prompt} type="button" style={{ ...styles.quickChip, fontSize: layout.compact ? '10px' : '11px', padding: layout.compact ? '4px 7px' : '4px 9px' }} className="chat-chip" onClick={() => sendMessage(prompt)}>{prompt}</button>
+              ))}
             </div>
 
-            <div
-              style={styles.resizeSide}
-              onMouseDown={startSideResizing}
-              aria-label="Resize chat width"
-              title="Drag side to resize width"
-            />
+            {autoSuggestions.length > 0 && (
+              <div style={styles.autoBox}>
+                {autoSuggestions.slice(0, 5).map((s, i) => (
+                  <button
+                    key={`${s.value}-${i}`}
+                    type="button"
+                    style={styles.autoItem}
+                    className="chat-chip"
+                    onClick={() => {
+                      setInput(s.value);
+                      setAutoSuggestions([]);
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div style={{ ...styles.inputRow, flexDirection: inputDirection }}>
+              <input
+                style={{ ...styles.input, width: '100%' }}
+                value={input}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setInput(next);
+                  runAutocomplete(next);
+                }}
+                placeholder="Ask anything about products, orders, cart..."
+                onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+              />
+              <button style={{ ...styles.sendBtn, width: inputButtonWidth }} className="hover-btn" onClick={() => sendMessage()} disabled={loading}>Send</button>
+            </div>
           </div>
+
+          <div
+            style={styles.resizeSide}
+            onMouseDown={startSideResizing}
+            aria-label="Resize chat width"
+            title="Drag side to resize width"
+          />
         </div>
       )}
     </>
@@ -342,7 +400,7 @@ const styles = {
     zIndex: 1100,
     border: 'none',
     borderRadius: '999px',
-    background: 'linear-gradient(135deg, #0e7a6d, #0a564d)',
+    background: 'linear-gradient(135deg, #3a948a, #3a948a)',
     color: '#fff',
     padding: '14px 20px',
     cursor: 'pointer',
@@ -353,7 +411,10 @@ const styles = {
     position: 'fixed',
     inset: 0,
     zIndex: 1099,
-    backgroundColor: 'rgba(0, 0, 0, 0.14)'
+    backgroundColor: 'rgba(0, 0, 0, 0.14)',
+    overflow: 'hidden',
+    overscrollBehavior: 'auto',
+    touchAction: 'auto'
   },
   window: {
     position: 'fixed',
@@ -367,9 +428,11 @@ const styles = {
     borderRadius: '18px',
     overflow: 'hidden',
     resize: 'none',
-    display: 'grid',
-    gridTemplateRows: 'auto 1fr auto',
-    boxShadow: '0 22px 40px rgba(28,22,18,.22)'
+    display: 'flex',
+    flexDirection: 'column',
+    boxShadow: '0 22px 40px rgba(28,22,18,.22)',
+    overscrollBehavior: 'contain',
+    touchAction: 'auto'
   },
   header: {
     padding: '12px 14px',
@@ -395,27 +458,59 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center'
   },
-  body: { padding: '12px', overflowY: 'auto', backgroundColor: '#faf6ef', minWidth: 0 },
+ body: {
+  padding: '10px',
+  backgroundColor: '#faf6ef',
+  minWidth: 0,
+  flex: '1 1 0',
+  minHeight: 0,
+  overflow: 'hidden',     
+  display: 'flex',
+  flexDirection: 'column',
+  position: 'relative'
+},
+  messageStream: {
+    width: '100%',
+    flex: '1 1 0',
+    overflowY: 'auto',
+    overflowX: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0',
+    paddingRight: '8px',
+    overscrollBehavior: 'contain',
+    WebkitOverflowScrolling: 'touch'
+  },
   message: {
     padding: '10px 12px',
     borderRadius: '12px',
     marginBottom: '10px',
     fontSize: '13px',
-    wordBreak: 'break-word',
-    minWidth: 0
+    overflowWrap: 'break-word',
+    wordWrap: 'break-word',
+    whiteSpace: 'normal',
+    width: '100%',
+    maxWidth: '100%',
+    boxSizing: 'border-box',
+    minWidth: 0,
+    overflow: 'hidden',
+    flexShrink: 0
   },
   assistantMsg: {
     backgroundColor: '#fff',
     border: '1px solid #eadfce',
-    color: '#2c231d'
+    color: '#2c231d',
+    alignSelf: 'flex-start'
   },
   userMsg: {
     backgroundColor: '#d8efe9',
     border: '1px solid #b8ded5',
     color: '#18443f',
-    marginLeft: '26px'
+    marginLeft: 'auto',
+    maxWidth: '92%',
+    alignSelf: 'flex-end'
   },
-  suggestionWrap: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' },
+  suggestionWrap: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px', maxWidth: '100%' },
   suggestChip: {
     border: '1px solid #c9b8a6',
     backgroundColor: '#fff',
@@ -425,17 +520,27 @@ const styles = {
     cursor: 'pointer'
   },
   sectionTitle: { margin: '6px 0', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.8px', color: '#7c6d61' },
-  productGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '8px', minWidth: 0 },
-  productCard: { textDecoration: 'none', color: '#1f1a16', border: '1px solid #e5d8c9', borderRadius: '10px', backgroundColor: '#fff', padding: '7px', display: 'flex', flexDirection: 'column', minWidth: 0 },
-  productThumbWrap: { height: '68px', borderRadius: '8px', backgroundColor: '#f2e7d9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '6px', overflow: 'hidden' },
-  productThumb: { width: '100%', height: '68px', objectFit: 'cover' },
+  productGrid: { display: 'grid', gap: '8px', minWidth: 0, width: '100%' },
+  productCard: { textDecoration: 'none', color: '#1f1a16', border: '1px solid #e5d8c9', borderRadius: '10px', backgroundColor: '#fff', padding: '7px', display: 'flex', flexDirection: 'column', minWidth: 0, maxWidth: '100%', overflow: 'hidden' },
+  productThumbWrap: { width: '100%', aspectRatio: '4 / 3', borderRadius: '8px', backgroundColor: '#f2e7d9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '6px', overflow: 'hidden' },
+  productThumb: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
   productName: { fontSize: '12px', fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' },
   productPrice: { fontSize: '12px', color: '#0e7a6d', fontWeight: 700, marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  unavailableBox: {
+    marginTop: '10px',
+    padding: '10px 12px',
+    borderRadius: '10px',
+    background: '#fff5ef',
+    border: '1px solid #f0c7b1',
+    color: '#8b4d2c',
+    fontSize: '12px',
+    fontWeight: 600
+  },
   timelineWrap: { marginTop: '8px', display: 'grid', gap: '4px' },
   timelineStep: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' },
   timelineDot: { width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#cbbcae' },
   timelineDone: { backgroundColor: '#0e7a6d' },
-  inputWrap: { borderTop: '1px solid #e6d9ca', padding: '10px', backgroundColor: '#fffdfa' },
+  inputWrap: { borderTop: '1px solid #e6d9ca', padding: '10px', backgroundColor: '#fffdfa', minWidth: 0, flexShrink: 0 },
   quickRow: { display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '8px' },
   quickChip: {
     border: '1px solid #d7c8b8',
@@ -446,10 +551,10 @@ const styles = {
     cursor: 'pointer',
     whiteSpace: 'nowrap'
   },
-  autoBox: { border: '1px solid #dfd1bf', borderRadius: '10px', overflow: 'hidden', marginBottom: '8px' },
+  autoBox: { border: '1px solid #dfd1bf', borderRadius: '10px', overflow: 'hidden', marginBottom: '8px', maxWidth: '100%' },
   autoItem: { display: 'block', width: '100%', textAlign: 'left', border: 'none', background: '#fff', padding: '8px', fontSize: '12px', cursor: 'pointer' },
-  inputRow: { display: 'flex', gap: '8px' },
-  input: { flex: 1, border: '1px solid #d6c8b7', borderRadius: '10px', padding: '10px', fontSize: '13px' },
+  inputRow: { display: 'flex', gap: '8px', minWidth: 0, alignItems: 'stretch' },
+  input: { flex: 1, minWidth: 0, border: '1px solid #d6c8b7', borderRadius: '10px', padding: '10px', fontSize: '13px', boxSizing: 'border-box' },
   sendBtn: { border: 'none', borderRadius: '10px', backgroundColor: '#0e7a6d', color: '#fff', padding: '10px 14px', fontWeight: 700, cursor: 'pointer' },
   resizeSide: {
     position: 'absolute',

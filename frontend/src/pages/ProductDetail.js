@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { getProduct, getProducts, addToWishlist, removeFromWishlist } from '../services/api';
+import { getProduct, getProducts, addToWishlist, removeFromWishlist, assistantSeo, updateProduct } from '../services/api';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { getProductImage, getProductImages, getProductImageEntries, getProductImagesByColor } from '../utils/productImage';
-import { trackViewedProduct } from '../utils/behaviorTracker';
-import { getRecentlyViewedProducts, trackProductClick } from '../utils/behaviorTracker';
+import { trackViewedProduct, getRecentlyViewedProducts, trackProductClick, trackWishlistEvent } from '../utils/behaviorTracker';
 import { getEffectivePrice, getOriginalPrice, getSaleLabel } from '../utils/pricing';
 
 const normalizeColor = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
@@ -30,6 +29,9 @@ const ProductDetail = () => {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [recentlyViewedProducts, setRecentlyViewedProducts] = useState([]);
   const [relatedProducts, setRelatedProducts] = useState([]);
+  const [seoSuggestions, setSeoSuggestions] = useState(null);
+  const [seoLoading, setSeoLoading] = useState(false);
+  const [seoApplying, setSeoApplying] = useState(false);
   const touchStartXRef = useRef(null);
   const mouseStartXRef = useRef(null);
 
@@ -73,6 +75,21 @@ const ProductDetail = () => {
 
   useEffect(() => {
     if (!product?._id) return;
+
+    // Fetch SEO suggestions for admins
+    const tryFetchSeo = async () => {
+      try {
+        setSeoLoading(true);
+        const res = await assistantSeo({ productId: product._id });
+        if (res?.data?.success) setSeoSuggestions(res.data.suggestions);
+      } catch (err) {
+        // ignore
+      } finally {
+        setSeoLoading(false);
+      }
+    };
+
+    tryFetchSeo();
 
     const loadSuggestions = async () => {
       try {
@@ -133,9 +150,11 @@ const ProductDetail = () => {
     try {
       if (wishlisted) {
         await removeFromWishlist(product._id);
+        trackWishlistEvent({ action: 'wishlist_remove', productId: product._id });
         setWishlisted(false);
       } else {
         await addToWishlist(product._id);
+        trackWishlistEvent({ action: 'wishlist_add', productId: product._id });
         setWishlisted(true);
       }
     } catch (err) {
@@ -515,6 +534,48 @@ const ProductDetail = () => {
               </div>
             )}
 
+            {/* SEO Suggestions */}
+            {(seoLoading || seoSuggestions) && (
+              <div style={styles.seoPanel}>
+                <h3 style={{ marginTop: 0 }}>SEO Suggestions</h3>
+                {seoLoading && <div style={{ color: '#666' }}>Generating suggestions…</div>}
+                {!seoLoading && !seoSuggestions && <div style={{ color: '#666' }}>No suggestions available</div>}
+                {seoSuggestions && (
+                  <div>
+                    <div style={{ marginBottom: '8px' }}><strong>Title:</strong> <div style={{ marginTop: '6px' }}>{seoSuggestions.metaTitle}</div></div>
+                    <div style={{ marginBottom: '8px' }}><strong>Description:</strong> <div style={{ marginTop: '6px' }}>{seoSuggestions.metaDescription}</div></div>
+                    <div style={{ marginBottom: '8px' }}><strong>Keywords:</strong> <div style={{ marginTop: '6px' }}>{(seoSuggestions.metaKeywords || []).join(', ')}</div></div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {user?.role === 'admin' ? (
+                        <button style={styles.applySeoBtn} disabled={seoApplying} onClick={async () => {
+                          if (!seoSuggestions) return;
+                          try {
+                            setSeoApplying(true);
+                            const payload = {
+                              metaTitle: seoSuggestions.metaTitle,
+                              metaDescription: seoSuggestions.metaDescription,
+                              metaKeywords: seoSuggestions.metaKeywords
+                            };
+                            const upd = await updateProduct(product._id, payload);
+                            if (upd?.data?.success) {
+                              setProduct((prev) => ({ ...prev, ...payload }));
+                              setSeoSuggestions(null);
+                            }
+                          } catch (err) {
+                            console.error('SEO apply failed', err);
+                          } finally {
+                            setSeoApplying(false);
+                          }
+                        }}>{seoApplying ? 'Applying…' : 'Apply to product'}</button>
+                      ) : (
+                        <div style={{ color: '#666', fontSize: '14px' }}>Sign in as admin to apply these suggestions.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         </div>
 
@@ -827,6 +888,8 @@ const styles = {
     height: '100%',
     objectFit: 'cover'
   },
+  seoPanel: { marginTop: '18px', padding: '14px', borderRadius: '12px', border: '1px solid #eadfcc', background: 'linear-gradient(180deg,#fff,#fbf8f4)' },
+  applySeoBtn: { backgroundColor: '#0e7a6d', color: '#fff', border: 'none', padding: '10px 14px', borderRadius: '10px', cursor: 'pointer' },
 };
 
 export default ProductDetail;

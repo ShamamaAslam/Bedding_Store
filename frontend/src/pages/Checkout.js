@@ -13,8 +13,19 @@ import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { createOrder, createPaymentIntent } from '../services/api';
 import { getEffectivePrice, getOriginalPrice, getSaleLabel } from '../utils/pricing';
+import { getStoredMarketingSource } from '../utils/attribution';
+import { getBehaviorSessionId, trackCheckoutEvent } from '../utils/behaviorTracker';
 
-const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder');
+const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder')
+  .catch((err) => {
+    // Prevent uncaught runtime error when the Stripe script fails to load
+    // (network blocked, CSP, or offline). Components will see `stripe` as null
+    // and the UI already handles the case where `stripe` is not available.
+    // Log the error for debugging.
+    // eslint-disable-next-line no-console
+    console.error('Failed to load Stripe.js', err);
+    return null;
+  });
 const COUPON_KEY = 'wf_applied_coupon';
 const DELIVERY_CHARGE = 250;
 
@@ -73,10 +84,26 @@ const CheckoutForm = () => {
   const cityOptions = PAKISTAN_CITIES[formData.state] || [];
 
   useEffect(() => {
+    trackCheckoutEvent({
+      step: 'checkout_start',
+      metadata: {
+        cartItems: cartItems.length,
+        total: payableTotal
+      }
+    });
+
     if (cartItems.length === 0) {
       navigate('/cart');
     }
-  }, [cartItems.length, navigate]);
+  }, [cartItems.length, navigate, payableTotal]);
+
+  useEffect(() => {
+    if (!formData.paymentMethod) return;
+    trackCheckoutEvent({
+      step: 'checkout_payment_selected',
+      metadata: { paymentMethod: formData.paymentMethod }
+    });
+  }, [formData.paymentMethod]);
 
   if (cartItems.length === 0) {
     return null;
@@ -109,14 +136,32 @@ const CheckoutForm = () => {
         phone: formData.phone
       },
       paymentMethod: formData.paymentMethod,
+      marketingSource: getStoredMarketingSource(),
+      checkoutSessionId: getBehaviorSessionId(),
       notes: `${formData.notes || ''}${coupon ? `\nCoupon Applied: ${coupon.code} (${coupon.discountPercent}% off)` : ''}`.trim()
     };
 
     try {
+      trackCheckoutEvent({
+        step: 'checkout_shipping_filled',
+        metadata: {
+          city: formData.city,
+          state: formData.state
+        }
+      });
+      trackCheckoutEvent({
+        step: 'checkout_submit_attempt',
+        metadata: {
+          paymentMethod: formData.paymentMethod,
+          total: payableTotal
+        }
+      });
+
       // ── CARD PAYMENT via Stripe ──────────────────────────────────────────
       if (formData.paymentMethod === 'Card') {
         if (!stripe || !elements) {
           setCardError('Stripe is not loaded. Please refresh.');
+          trackCheckoutEvent({ step: 'checkout_payment_failed', metadata: { reason: 'stripe_not_loaded' } });
           setLoading(false);
           return;
         }
@@ -135,15 +180,22 @@ const CheckoutForm = () => {
 
         if (error) {
           setCardError(error.message);
+          trackCheckoutEvent({ step: 'checkout_payment_failed', metadata: { reason: error.message || 'stripe_error' } });
           setLoading(false);
           return;
         }
 
         if (paymentIntent.status !== 'succeeded') {
           setCardError('Payment was not successful. Please try again.');
+          trackCheckoutEvent({ step: 'checkout_payment_failed', metadata: { reason: `status_${paymentIntent.status}` } });
           setLoading(false);
           return;
         }
+
+        trackCheckoutEvent({
+          step: 'checkout_payment_success',
+          metadata: { paymentMethod: 'Card', paymentIntentId: paymentIntent.id }
+        });
 
         // 3. Payment succeeded → create order with paymentStatus: 'Paid'
         orderPayload.paymentStatus = 'Paid';
@@ -154,6 +206,14 @@ const CheckoutForm = () => {
       const res = await createOrder(orderPayload);
       if (res.data.success) {
         const placedOrder = res.data.order;
+        trackCheckoutEvent({
+          step: 'checkout_order_success',
+          metadata: {
+            orderId: placedOrder._id,
+            total: placedOrder.totalAmount,
+            paymentMethod: placedOrder.paymentMethod
+          }
+        });
         clearCart();
         localStorage.removeItem(COUPON_KEY);
         setSubmitMessage({
@@ -175,6 +235,7 @@ const CheckoutForm = () => {
       }
     } catch (err) {
       const msg = err.response?.data?.message || 'Order failed. Please try again.';
+      trackCheckoutEvent({ step: 'checkout_payment_failed', metadata: { reason: msg } });
       setSubmitMessage({ type: 'error', text: msg });
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
