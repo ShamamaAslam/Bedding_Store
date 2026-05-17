@@ -139,9 +139,9 @@ const ChatAssistant = () => {
 
   useEffect(() => {
     if (!open || !bodyRef.current) return;
-    if (isAtBottomRef.current) {
-      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-    }
+    // Auto-scroll to bottom when messages change or when loading completes
+    // This ensures user sees new responses even if they scrolled up
+    bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
   }, [messages, loading, open]);
 
   useEffect(() => {
@@ -308,8 +308,8 @@ const ChatAssistant = () => {
   return (
     <>
       {!open && (
-        <button style={styles.fab} className="hover-btn" onClick={() => setOpen(true)}>
-          AI Help
+        <button style={styles.fab} className="hover-btn" onClick={() => setOpen(true)} title="Chat with WF AI Concierge">
+          💬
         </button>
       )}
 

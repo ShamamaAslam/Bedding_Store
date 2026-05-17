@@ -714,8 +714,8 @@ const assistantChat = async (req, res) => {
       products = dedupeProducts(products);
       products = filterProductsByPrice(products, filters.minPrice, filters.maxPrice, filters.exactPrice);
 
-      // ✅ Fallback only if no results, but preserve ALL filters
-      if (!products.length && filters.bedsheetRequest && !filters.useToneBedsheetSearch) {
+      // ✅ Fallback for bedsheet requests with no results (including tone-based searches)
+      if (!products.length && filters.bedsheetRequest) {
         const fallbackQuery = {
           isActive: true,
           name: { $regex: 'bedsheet|bed sheet', $options: 'i' }
@@ -732,6 +732,7 @@ const assistantChat = async (req, res) => {
           .limit(20)
           .lean();
 
+        // ✅ Apply tone filtering in fallback, even for tone-based searches
         if (filters.lightColorOnly) {
           products = filterProductsByTone(products, 'light');
           products = rankLightColorMatches(products);
