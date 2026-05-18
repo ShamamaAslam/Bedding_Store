@@ -296,12 +296,14 @@ const findFabricInMessage = (message) => {
 
 const wantsLightColors = (message) => {
   const text = normalize(message);
-  return /(light\s+(?:colour|color)|light-colored|light colored)/.test(text);
+  // match: "light colour", "light colours", "light color", "light colors", "light-colored", "light coloured", etc.
+  return /(?:\blight(?:\s+|[-])(?:colou?r?s?|colou?r-?ed|colored?)\b)|\blight\s+colou?r\b/.test(text);
 };
 
 const wantsDarkColors = (message) => {
   const text = normalize(message);
-  return /(dark\s+(?:colour|color)|dark-colored|dark colored)/.test(text);
+  // match: "dark colour", "dark colours", "dark color", "dark colors", "dark-colored", "dark coloured", etc.
+  return /(?:\bdark(?:\s+|[-])(?:colou?r?s?|colou?r-?ed|colored?)\b)|\bdark\s+colou?r\b/.test(text);
 };
 
 const mentionsBedsheets = (message) => {
