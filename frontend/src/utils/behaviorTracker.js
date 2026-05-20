@@ -3,9 +3,22 @@ const SESSION_KEY = 'wf_session_id';
 
 const getApiBase = () => {
   if (typeof window !== 'undefined') {
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      return 'http://localhost:5000/api';
+    const hostname = window.location.hostname;
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('172.')
+    ) {
+      return `http://${hostname}:5000/api`;
     }
+
+    const envUrl = process.env.REACT_APP_API_BASE_URL;
+    if (envUrl && typeof envUrl === 'string') {
+      return envUrl.replace(/\/$/, '');
+    }
+
     return `${window.location.origin}/api`;
   }
   return 'http://localhost:5000/api';
