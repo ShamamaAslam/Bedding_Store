@@ -315,6 +315,14 @@ button:focus-visible {
   .mobile-w-full {
     width: 100% !important;
   }
+
+  .responsive-container {
+    padding: 16px 12px !important;
+  }
+
+  .responsive-card-form {
+    padding: 20px 16px !important;
+  }
 }
 
 @media (max-width: 480px) {

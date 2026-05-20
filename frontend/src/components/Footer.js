@@ -242,6 +242,8 @@ const styles = {
     marginBottom: '12px'
   },
   emailInput: {
+    width: '100%',
+    boxSizing: 'border-box',
     padding: '10px 14px',
     border: '1px solid rgba(255, 255, 255, 0.15)',
     borderRadius: '6px',

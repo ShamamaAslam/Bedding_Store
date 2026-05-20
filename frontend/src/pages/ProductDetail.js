@@ -416,7 +416,7 @@ const ProductDetail = () => {
         {product.slug && <link rel="canonical" href={`${window.location.origin}/products/${product.slug}`} />}
       </Helmet>
 
-      <div style={styles.container}>
+      <div style={styles.container} className="responsive-container">
         <button onClick={() => navigate(-1)} style={styles.backBtn}>← Back</button>
 
         <div style={styles.productContainer} className="responsive-grid-layout">

@@ -229,12 +229,12 @@ const CheckoutForm = () => {
   };
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} className="responsive-container">
       <h1 style={styles.title}>Checkout</h1>
 
       <div style={styles.layout} className="checkout-grid-layout">
         {/* Left — Shipping + Payment Form */}
-        <form onSubmit={handleSubmit} style={styles.form}>
+        <form onSubmit={handleSubmit} style={styles.form} className="responsive-card-form">
           <h2 style={styles.sectionTitle}>Shipping Address</h2>
 
           {submitMessage.text && (
@@ -283,7 +283,7 @@ const CheckoutForm = () => {
 
           <h2 style={{ ...styles.sectionTitle, marginTop: '28px' }}>Payment Method</h2>
 
-          <div style={styles.paymentOptions}>
+          <div style={styles.paymentOptions} className="responsive-form-row">
             <label style={{ ...styles.radioLabel, ...(formData.paymentMethod === 'COD' ? styles.radioActive : {}) }}>
               <input type="radio" name="paymentMethod" value="COD" checked={formData.paymentMethod === 'COD'} onChange={handleChange} />
               💵 Cash on Delivery

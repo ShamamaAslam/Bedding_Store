@@ -16,7 +16,7 @@ const Cart = () => {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} className="responsive-container">
       <h1 style={styles.title}>Shopping Cart ({totalItems} items)</h1>
       
       <div style={styles.cartContainer} className="cart-grid-layout">
