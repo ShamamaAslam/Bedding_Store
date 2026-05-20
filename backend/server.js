@@ -1,3 +1,4 @@
+// Server v6 — Suppress bulleted lists in product AI greeting
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -12,13 +13,21 @@ const orderRoutes = require('./Routes/OrderRoutes');
 const paymentRoutes = require('./Routes/PaymentRoutes');
 const assistantRoutes = require('./Routes/AssistantRoutes');
 const analyticsRoutes = require('./Routes/AnalyticsRoutes');
+const contactRoutes = require('./Routes/ContactRoutes');
 
 const app = express();
 const uploadsDir = path.join(__dirname, 'uploads');
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
+let allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+// In development, also allow the dev server on port 3001 (CRA may prompt to use alternate port)
+if (process.env.NODE_ENV !== 'production') {
+  ['http://localhost:3000', 'http://localhost:3001'].forEach((o) => {
+    if (!allowedOrigins.includes(o)) allowedOrigins.push(o);
+  });
+}
 
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -38,6 +47,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/assistant', assistantRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/contact', contactRoutes);
 
 app.get('/', (req, res) => res.send('WF Bedding Store API is running 🚀'));
 

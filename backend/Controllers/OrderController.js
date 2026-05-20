@@ -1,5 +1,10 @@
 const Order = require('../Models/Order');
 const Product = require('../Models/Products');
+const {
+  calculateSecureOrderTotal,
+  decrementProductStock,
+  sendOrderConfirmationEmail
+} = require('../Utils/orderHelper');
 
 // Create new order
 const createOrder = async (req, res) => {
@@ -13,45 +18,69 @@ const createOrder = async (req, res) => {
       stripePaymentId,
       notes,
       marketingSource,
-      checkoutSessionId
+      checkoutSessionId,
+      couponCode,
+      discountPercent
     } = req.body;
 
-    // Validate stock and update product quantities
-    for (const item of items) {
-      const product = await Product.findById(item.product);
-      if (!product) {
-        return res.status(404).json({
-          success: false,
-          message: `Product ${item.name} not found`
-        });
-      }
-      if (product.stock < item.quantity) {
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient stock for ${product.name}. Available: ${product.stock}`
-        });
-      }
+    if (!items || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'No items in order' });
     }
 
-    // Update stock and increment purchases
-    for (const item of items) {
-      await Product.findByIdAndUpdate(item.product, {
-        $inc: { stock: -item.quantity, purchases: 1 }
+    // 1. Secure Price and Coupon validation on Backend
+    let calculatedAmountData;
+    try {
+      calculatedAmountData = await calculateSecureOrderTotal({
+        items,
+        couponCode,
+        discountPercent: Number(discountPercent || 0)
       });
+    } catch (calcError) {
+      return res.status(400).json({ success: false, message: calcError.message });
+    }
+
+    // Protection check: Compare client-supplied amount with secured backend total
+    const tolerance = 5; // tolerance for rounding differences
+    if (Math.abs(calculatedAmountData.payableTotal - Number(totalAmount)) > tolerance) {
+      return res.status(400).json({
+        success: false,
+        message: `Order amount validation failed. Client: Rs. ${totalAmount}, Server: Rs. ${calculatedAmountData.payableTotal}`
+      });
+    }
+
+    const verifiedItems = calculatedAmountData.verifiedItems;
+    let stockUpdated = false;
+
+    // 2. Atomic Stock Decrement (COD orders update stock immediately)
+    if (paymentMethod === 'COD') {
+      const stockRes = await decrementProductStock(verifiedItems);
+      if (!stockRes.success) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient stock for ${stockRes.failedProduct}.`
+        });
+      }
+      stockUpdated = true;
     }
 
     const order = await Order.create({
       user: req.user.id,
-      items,
-      totalAmount,
+      items: verifiedItems,
+      totalAmount: calculatedAmountData.payableTotal, // Securely calculated total
       shippingAddress,
       paymentMethod,
       marketingSource: marketingSource || 'direct',
       checkoutSessionId: checkoutSessionId || '',
       paymentStatus: paymentStatus || 'Pending',
       stripePaymentId: stripePaymentId || null,
+      stockUpdated,
       notes
     });
+
+    // 3. Send Transactional Confirmation Email (for COD orders immediately)
+    if (paymentMethod === 'COD') {
+      sendOrderConfirmationEmail(order, req.user.email).catch(console.error);
+    }
 
     res.status(201).json({
       success: true,
@@ -208,10 +237,52 @@ const updateOrderStatus = async (req, res) => {
   }
 };
 
+// User self-service: update shipping address (only allowed when orderStatus is Pending or Processing)
+const updateOrderShippingAddress = async (req, res) => {
+  try {
+    const { shippingAddress } = req.body;
+    if (!shippingAddress) {
+      return res.status(400).json({ success: false, message: 'Shipping address is required' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Verify ownership
+    if (order.user.toString() !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Not authorized to modify this order' });
+    }
+
+    // Check status
+    const editableStatuses = ['Pending', 'Processing'];
+    if (!editableStatuses.includes(order.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Order shipping address cannot be modified once it has reached the "${order.orderStatus}" stage.`
+      });
+    }
+
+    order.shippingAddress = shippingAddress;
+    order.notes = `${order.notes || ''}\n[SYSTEM] Shipping address updated by user on ${new Date().toLocaleString()}`.trim();
+    await order.save();
+
+    res.json({
+      success: true,
+      message: 'Shipping address updated successfully!',
+      order
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
 module.exports = {
   createOrder,
   getUserOrders,
   getOrderById,
   getAllOrders,
-  updateOrderStatus
+  updateOrderStatus,
+  updateOrderShippingAddress
 };

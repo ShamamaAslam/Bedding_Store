@@ -41,6 +41,7 @@ const Products = () => {
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [trending, setTrending] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
@@ -50,6 +51,7 @@ const Products = () => {
     search: true,
     category: true,
     fabric: true,
+    shade: true,
     availability: true,
     pricing: true,
     sort: true
@@ -61,7 +63,7 @@ const Products = () => {
   const [filters, setFilters] = useState({
     category: searchParams.get('category') || '',
     search: searchParams.get('search') || '',
-    sort: 'newest', fabricType: '', minPrice: '', maxPrice: '', availability: ''
+    sort: 'newest', fabricType: '', shade: '', minPrice: '', maxPrice: '', availability: ''
   });
   const [debouncedSearch, setDebouncedSearch] = useState(searchParams.get('search') || '');
 
@@ -99,7 +101,7 @@ const Products = () => {
   };
 
   const clearFilters = () => {
-    setFilters({ category: '', sort: 'newest', fabricType: '', minPrice: '', maxPrice: '', availability: '', search: '' });
+    setFilters({ category: '', sort: 'newest', fabricType: '', shade: '', minPrice: '', maxPrice: '', availability: '', search: '' });
     setDebouncedSearch('');
   };
 
@@ -114,6 +116,19 @@ const Products = () => {
     };
 
     loadCategories();
+  }, []);
+
+  useEffect(() => {
+    const loadTrendingProducts = async () => {
+      try {
+        const res = await getProducts({ sort: 'trending' });
+        setTrending(res.data.products ? res.data.products.slice(0, 6) : []);
+      } catch (err) {
+        setTrending([]);
+      }
+    };
+
+    loadTrendingProducts();
   }, []);
 
   useEffect(() => {
@@ -180,6 +195,7 @@ const Products = () => {
         // Keep backend query narrow and deterministic; apply pricing/sort filters locally
         // so behavior matches the exact values shown on product cards.
         if (debouncedSearch) params.search = debouncedSearch;
+        if (filters.shade) params.shade = filters.shade;
 
         const res = await getProducts(params);
         setProducts(res.data.products || []);
@@ -192,7 +208,7 @@ const Products = () => {
     };
 
     loadProducts();
-  }, [filters.category, debouncedSearch]);
+  }, [filters.category, filters.shade, debouncedSearch]);
 
   const hasValidMinPrice = filters.minPrice !== '' && Number.isFinite(Number(filters.minPrice));
   const hasValidMaxPrice = filters.maxPrice !== '' && Number.isFinite(Number(filters.maxPrice));
@@ -211,6 +227,11 @@ const Products = () => {
       if (normalizedFabric) {
         const productFabric = String(product.fabricType || '').trim().toLowerCase();
         if (productFabric !== normalizedFabric) return false;
+      }
+
+      if (filters.shade) {
+        const shadeValue = String(filters.shade).trim().toLowerCase();
+        if (!product.shadeCategories || !product.shadeCategories.includes(shadeValue)) return false;
       }
 
       if (filters.availability === 'in_stock' && Number(product.stock || 0) <= 0) return false;
@@ -234,7 +255,7 @@ const Products = () => {
     }
 
     return list;
-  }, [products, filters.fabricType, filters.availability, filters.minPrice, filters.maxPrice, filters.sort, hasValidMinPrice, hasValidMaxPrice, isInvalidPriceRange]);
+  }, [products, filters.fabricType, filters.shade, filters.availability, filters.minPrice, filters.maxPrice, filters.sort, hasValidMinPrice, hasValidMaxPrice, isInvalidPriceRange]);
 
   const fabricOptions = useMemo(() => {
     const defaults = ['Cotton', 'Silk', 'Linen', 'Polyester', 'Wool', 'Blend', 'Other'];
@@ -395,6 +416,20 @@ const Products = () => {
             </div>
 
             <div className="filter-group">
+              <button type="button" className="filter-group-head" onClick={() => toggleSection('shade')}>
+                Shade
+                <span>{openSections.shade ? '−' : '+'}</span>
+              </button>
+              {openSections.shade && (
+                <select className="filter-select" value={filters.shade} onChange={e => setFilterValue('shade', e.target.value)}>
+                  <option value="">All Shades</option>
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                </select>
+              )}
+            </div>
+
+            <div className="filter-group">
               <button type="button" className="filter-group-head" onClick={() => toggleSection('availability')}>
                 Availability
                 <span>{openSections.availability ? '−' : '+'}</span>
@@ -488,77 +523,161 @@ const Products = () => {
               ))}
             </motion.div>
           ) : (
-            <motion.div className="products-grid" variants={listVariants} initial="hidden" animate="visible">
-              {filteredProducts.length === 0 ? (
-                <motion.div className="empty-state" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
-                  <div className="empty-emoji">🧭</div>
-                  <h3>No products found</h3>
-                  <p>{isInvalidPriceRange ? 'Please enter a valid price range (Min must be less than or equal to Max).' : 'Try resetting filters or widening your price range.'}</p>
-                </motion.div>
-              ) : (
-                filteredProducts.map((product, index) => (
-                  <MotionLink
-                    key={product._id}
-                    to={`/products/${product._id}`}
-                    className="product-card"
-                    onClick={() => trackProductClick(product._id)}
-                    style={{ animationDelay: `${index * 45}ms` }}
-                    variants={cardVariants}
-                    whileHover={{ y: -7, scale: 1.01 }}
-                    whileTap={{ scale: 0.99 }}
+            <>
+              <motion.div className="products-grid" variants={listVariants} initial="hidden" animate="visible">
+                {filteredProducts.length > 0 ? (
+                  filteredProducts.map((product, index) => (
+                    <MotionLink
+                      key={product._id}
+                      to={`/products/${product._id}`}
+                      className="product-card"
+                      onClick={() => trackProductClick(product._id)}
+                      style={{ animationDelay: `${index * 45}ms` }}
+                      variants={cardVariants}
+                      whileHover={{ y: -7, scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
+                    >
+                      <div className="product-image-wrap">
+                        {getProductImage(product) ? (
+                          <img src={getProductImage(product)} alt={product.name} className="product-image" />
+                        ) : (
+                          <div className="product-image-fallback">{getCatIcon(product.category?.name)}</div>
+                        )}
+
+                        <div className="quick-actions">
+                          <button
+                            type="button"
+                            className="quick-btn primary"
+                            onClick={(event) => handleAddToCart(event, product)}
+                            disabled={product.stock <= 0}
+                            style={{ opacity: product.stock <= 0 ? 0.5 : 1, cursor: product.stock <= 0 ? 'not-allowed' : 'pointer' }}
+                          >
+                            Add to Cart
+                          </button>
+                          <button
+                            type="button"
+                            className="quick-btn"
+                            onClick={(event) => handleWishlist(event, product)}
+                          >
+                            Wishlist
+                          </button>
+                        </div>
+
+                        {getSaleLabel(product) > 0 && <span className="sale-badge">-{getSaleLabel(product)}%</span>}
+                      </div>
+
+                      <div className="product-body">
+                        <div className="card-meta-row">
+                          <span className="fabric-pill">{product.fabricType || 'Fabric'}</span>
+                          <span className={`stock-pill ${product.stock > 0 ? 'ok' : 'out'}`}>
+                            {product.stock > 0 ? `In Stock (${product.stock})` : 'Out of Stock'}
+                          </span>
+                        </div>
+
+                        <h3 className="product-title">{product.name}</h3>
+                        <p className="product-cat">{product.category?.name}</p>
+                        <p className="product-desc">{(product.description || '').slice(0, 72)}...</p>
+
+                        <div className="price-row">
+                          {(product.discountPrice || getSaleLabel(product) > 0) && <span className="old-price">Rs. {getOriginalPrice(product)}</span>}
+                          <span className="current-price">Rs. {getEffectivePrice(product)}</span>
+                        </div>
+
+                        {product.stock > 0 && product.stock < 10 && <span className="low-stock">Only {product.stock} left</span>}
+                      </div>
+                    </MotionLink>
+                  ))
+                ) : trending.length > 0 ? (
+                  <>
+                    <motion.div
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.45 }}
+                      style={{ gridColumn: '1 / -1' }}
+                    >
+                      <div className="empty-state">
+                        <div className="empty-emoji">🎯</div>
+                        <h3>No products match your filters</h3>
+                        <p>Check out our trending products instead:</p>
+                      </div>
+                    </motion.div>
+                    {trending.map((product, index) => (
+                      <MotionLink
+                        key={product._id}
+                        to={`/products/${product._id}`}
+                        className="product-card"
+                        onClick={() => trackProductClick(product._id)}
+                        style={{ animationDelay: `${index * 45}ms` }}
+                        variants={cardVariants}
+                        whileHover={{ y: -7, scale: 1.01 }}
+                        whileTap={{ scale: 0.99 }}
+                      >
+                        <div className="product-image-wrap">
+                          {getProductImage(product) ? (
+                            <img src={getProductImage(product)} alt={product.name} className="product-image" />
+                          ) : (
+                            <div className="product-image-fallback">{getCatIcon(product.category?.name)}</div>
+                          )}
+
+                          <div className="quick-actions">
+                            <button
+                              type="button"
+                              className="quick-btn primary"
+                              onClick={(event) => handleAddToCart(event, product)}
+                              disabled={product.stock <= 0}
+                              style={{ opacity: product.stock <= 0 ? 0.5 : 1, cursor: product.stock <= 0 ? 'not-allowed' : 'pointer' }}
+                            >
+                              Add to Cart
+                            </button>
+                            <button
+                              type="button"
+                              className="quick-btn"
+                              onClick={(event) => handleWishlist(event, product)}
+                            >
+                              Wishlist
+                            </button>
+                          </div>
+
+                          {getSaleLabel(product) > 0 && <span className="sale-badge">-{getSaleLabel(product)}%</span>}
+                        </div>
+
+                        <div className="product-body">
+                          <div className="card-meta-row">
+                            <span className="fabric-pill">{product.fabricType || 'Fabric'}</span>
+                            <span className={`stock-pill ${product.stock > 0 ? 'ok' : 'out'}`}>
+                              {product.stock > 0 ? `In Stock (${product.stock})` : 'Out of Stock'}
+                            </span>
+                          </div>
+
+                          <h3 className="product-title">{product.name}</h3>
+                          <p className="product-cat">{product.category?.name}</p>
+                          <p className="product-desc">{(product.description || '').slice(0, 72)}...</p>
+
+                          <div className="price-row">
+                            {(product.discountPrice || getSaleLabel(product) > 0) && <span className="old-price">Rs. {getOriginalPrice(product)}</span>}
+                            <span className="current-price">Rs. {getEffectivePrice(product)}</span>
+                          </div>
+
+                          {product.stock > 0 && product.stock < 10 && <span className="low-stock">Only {product.stock} left</span>}
+                        </div>
+                      </MotionLink>
+                    ))}
+                  </>
+                ) : (
+                  <motion.div
+                    className="empty-state"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.45 }}
+                    style={{ gridColumn: '1 / -1' }}
                   >
-                    <div className="product-image-wrap">
-                      {getProductImage(product) ? (
-                        <img src={getProductImage(product)} alt={product.name} className="product-image" />
-                      ) : (
-                        <div className="product-image-fallback">{getCatIcon(product.category?.name)}</div>
-                      )}
-
-                      <div className="quick-actions">
-                        <button
-                          type="button"
-                          className="quick-btn primary"
-                          onClick={(event) => handleAddToCart(event, product)}
-                          disabled={product.stock <= 0}
-                          style={{ opacity: product.stock <= 0 ? 0.5 : 1, cursor: product.stock <= 0 ? 'not-allowed' : 'pointer' }}
-                        >
-                          Add to Cart
-                        </button>
-                        <button
-                          type="button"
-                          className="quick-btn"
-                          onClick={(event) => handleWishlist(event, product)}
-                        >
-                          Wishlist
-                        </button>
-                      </div>
-
-                      {getSaleLabel(product) > 0 && <span className="sale-badge">-{getSaleLabel(product)}%</span>}
-                    </div>
-
-                    <div className="product-body">
-                      <div className="card-meta-row">
-                        <span className="fabric-pill">{product.fabricType || 'Fabric'}</span>
-                        <span className={`stock-pill ${product.stock > 0 ? 'ok' : 'out'}`}>
-                          {product.stock > 0 ? `In Stock (${product.stock})` : 'Out of Stock'}
-                        </span>
-                      </div>
-
-                      <h3 className="product-title">{product.name}</h3>
-                      <p className="product-cat">{product.category?.name}</p>
-                      <p className="product-desc">{(product.description || '').slice(0, 72)}...</p>
-
-                      <div className="price-row">
-                        {(product.discountPrice || getSaleLabel(product) > 0) && <span className="old-price">Rs. {getOriginalPrice(product)}</span>}
-                        <span className="current-price">Rs. {getEffectivePrice(product)}</span>
-                      </div>
-
-                      {product.stock > 0 && product.stock < 10 && <span className="low-stock">Only {product.stock} left</span>}
-                    </div>
-                  </MotionLink>
-                ))
-              )}
-            </motion.div>
+                    <div className="empty-emoji">🧭</div>
+                    <h3>No products found</h3>
+                    <p>{isInvalidPriceRange ? 'Please enter a valid price range (Min must be less than or equal to Max).' : 'Try resetting filters or widening your price range.'}</p>
+                  </motion.div>
+                )}
+              </motion.div>
+            </>
           )}
         </motion.main>
       </div>

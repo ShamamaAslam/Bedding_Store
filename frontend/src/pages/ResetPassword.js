@@ -1,32 +1,44 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { loginUser } from '../services/api';
+import { useParams, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
-const Login = () => {
-  const [email, setEmail] = useState('');
+const ResetPassword = () => {
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+
+  const { resettoken } = useParams();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setMessage('');
     setError('');
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const res = await loginUser({ email, password });
-      if (res.data.success) {
-        login(res.data.user);
-        navigate('/');
-      } else {
-        setError(res.data.message || 'Login failed');
+      const { data } = await axios.put(`http://localhost:5000/api/auth/resetpassword/${resettoken}`, { password });
+      setMessage(data.message || 'Password reset successful!');
+      
+      // Save the new token
+      if (data.token) {
+        localStorage.setItem('token', data.token);
       }
+      
+      // Redirect to home/login after 3 seconds
+      setTimeout(() => {
+        navigate('/');
+      }, 3000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      setError(err.response?.data?.message || 'Failed to reset password. The link might be invalid or expired.');
     } finally {
       setLoading(false);
     }
@@ -35,56 +47,47 @@ const Login = () => {
   return (
     <div style={styles.container}>
       <div style={styles.card} className="premium-glass premium-card">
-        <h2 style={styles.title}>Welcome Back</h2>
-        <p style={styles.subtitle}>Login to your account</p>
+        <h2 style={styles.title}>Reset Password</h2>
+        <p style={styles.subtitle}>
+          Please enter your new password below.
+        </p>
 
+        {message && <div style={{...styles.error, backgroundColor: '#e7f7e7', color: '#135c13', borderColor: '#bfeac0'}}>{message}</div>}
         {error && <div style={styles.error}>{error}</div>}
 
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.inputGroup}>
-            <label style={styles.label}>Email Address</label>
+            <label style={styles.label}>New Password</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter new password (min 6 chars)"
               style={styles.input}
               className="premium-input"
-              placeholder="your@email.com"
               required
+              minLength="6"
             />
           </div>
 
-          <div style={{ ...styles.inputGroup, position: 'relative' }}>
-            <label style={styles.label}>Password</label>
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>Confirm Password</label>
             <input
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{ ...styles.input, paddingRight: '40px' }}
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Confirm new password"
+              style={styles.input}
               className="premium-input"
-              placeholder="••••••••"
               required
+              minLength="6"
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              style={{ position: 'absolute', right: '10px', top: '32px', background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}
-            >
-              {showPassword ? '🙈' : '👁️'}
-            </button>
           </div>
 
           <button type="submit" style={styles.button} className="premium-button" disabled={loading}>
-            {loading ? 'Logging in...' : 'Login'}
+            {loading ? 'Resetting...' : 'Reset Password'}
           </button>
         </form>
-
-        <p style={styles.footer}>
-          <Link to="/forgotpassword" style={styles.link}>Forgot Password?</Link>
-        </p>
-        <p style={styles.footer}>
-          Don't have an account? <Link to="/register" style={styles.link}>Register here</Link>
-        </p>
       </div>
     </div>
   );
@@ -169,17 +172,7 @@ const styles = {
     cursor: 'pointer',
     marginTop: '10px',
     boxShadow: '0 16px 28px rgba(15, 88, 79, 0.26)'
-  },
-  footer: {
-    textAlign: 'center',
-    marginTop: '20px',
-    color: '#66564b'
-  },
-  link: {
-    color: '#0f6e62',
-    fontWeight: 700,
-    textDecoration: 'none'
   }
 };
 
-export default Login;
+export default ResetPassword;

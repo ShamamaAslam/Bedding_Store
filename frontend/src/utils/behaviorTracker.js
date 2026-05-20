@@ -1,6 +1,17 @@
 const VIEW_KEY = 'wf_recently_viewed_products';
 const SESSION_KEY = 'wf_session_id';
-const API_BASE = 'http://localhost:5000/api';
+
+const getApiBase = () => {
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:5000/api';
+    }
+    return `${window.location.origin}/api`;
+  }
+  return 'http://localhost:5000/api';
+};
+
+const API_BASE = getApiBase();
 
 const persist = (ids) => {
   localStorage.setItem(VIEW_KEY, JSON.stringify(ids.slice(0, 15)));

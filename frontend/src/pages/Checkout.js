@@ -11,7 +11,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
-import { createOrder, createPaymentIntent } from '../services/api';
+import { createOrder, createPaymentIntent, createPayfastSession } from '../services/api';
 import { getEffectivePrice, getOriginalPrice, getSaleLabel } from '../utils/pricing';
 import { getStoredMarketingSource } from '../utils/attribution';
 import { getBehaviorSessionId, trackCheckoutEvent } from '../utils/behaviorTracker';
@@ -127,6 +127,8 @@ const CheckoutForm = () => {
         color: item.selectedColor
       })),
       totalAmount: payableTotal,
+      couponCode: coupon ? coupon.code : null,
+      discountPercent: coupon ? coupon.discountPercent : 0,
       shippingAddress: {
         fullName: formData.fullName,
         street: formData.street,
@@ -157,49 +159,25 @@ const CheckoutForm = () => {
         }
       });
 
-      // ── CARD PAYMENT via Stripe ──────────────────────────────────────────
+      // ── ONLINE PAYMENT via Payfast / Secure Gateway ────────────────────────
       if (formData.paymentMethod === 'Card') {
-        if (!stripe || !elements) {
-          setCardError('Stripe is not loaded. Please refresh.');
-          trackCheckoutEvent({ step: 'checkout_payment_failed', metadata: { reason: 'stripe_not_loaded' } });
+        const payfastRes = await createPayfastSession({ orderPayload });
+        if (payfastRes.data.success) {
+          trackCheckoutEvent({
+            step: 'checkout_payment_success',
+            metadata: { paymentMethod: 'Card' }
+          });
+          clearCart();
+          localStorage.removeItem(COUPON_KEY);
+          setLoading(false);
+          // Redirect to Payfast sandbox or local secure gateway redirect URL
+          window.location.href = payfastRes.data.redirectUrl;
+          return;
+        } else {
+          setCardError(payfastRes.data.message || 'Online payment initialization failed.');
           setLoading(false);
           return;
         }
-
-        // 1. Get client secret from our backend
-        const intentRes = await createPaymentIntent({ totalAmount: payableTotal });
-        const { clientSecret } = intentRes.data;
-
-        // 2. Confirm the payment with Stripe
-        const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-          payment_method: {
-            card: elements.getElement(CardElement),
-            billing_details: { name: formData.fullName }
-          }
-        });
-
-        if (error) {
-          setCardError(error.message);
-          trackCheckoutEvent({ step: 'checkout_payment_failed', metadata: { reason: error.message || 'stripe_error' } });
-          setLoading(false);
-          return;
-        }
-
-        if (paymentIntent.status !== 'succeeded') {
-          setCardError('Payment was not successful. Please try again.');
-          trackCheckoutEvent({ step: 'checkout_payment_failed', metadata: { reason: `status_${paymentIntent.status}` } });
-          setLoading(false);
-          return;
-        }
-
-        trackCheckoutEvent({
-          step: 'checkout_payment_success',
-          metadata: { paymentMethod: 'Card', paymentIntentId: paymentIntent.id }
-        });
-
-        // 3. Payment succeeded → create order with paymentStatus: 'Paid'
-        orderPayload.paymentStatus = 'Paid';
-        orderPayload.stripePaymentId = paymentIntent.id;
       }
 
       // ── CREATE ORDER in our backend ──────────────────────────────────────
@@ -224,11 +202,18 @@ const CheckoutForm = () => {
         setTimeout(() => {
           navigate('/thank-you', {
             state: {
+              order: placedOrder,
               orderId: placedOrder._id,
               shortOrderId: placedOrder._id.slice(-8),
               totalAmount: placedOrder.totalAmount,
               paymentMethod: placedOrder.paymentMethod,
-              customerName: formData.fullName
+              paymentStatus: placedOrder.paymentStatus,
+              orderStatus: placedOrder.orderStatus,
+              customerName: formData.fullName,
+              shippingAddress: placedOrder.shippingAddress,
+              items: placedOrder.items,
+              createdAt: placedOrder.createdAt,
+              coupon: coupon
             }
           });
         }, 700);
@@ -305,18 +290,21 @@ const CheckoutForm = () => {
             </label>
             <label style={{ ...styles.radioLabel, ...(formData.paymentMethod === 'Card' ? styles.radioActive : {}) }}>
               <input type="radio" name="paymentMethod" value="Card" checked={formData.paymentMethod === 'Card'} onChange={handleChange} />
-              💳 Credit / Debit Card
+              💳 Pay Online (Cards / Easypaisa / JazzCash)
             </label>
           </div>
 
           {/* Stripe Card Element — shown only when Card is selected */}
+          {/* Online Payment Notice — shown only when Online is selected */}
           {formData.paymentMethod === 'Card' && (
             <div style={styles.stripeBox}>
-              <CardElement options={cardElementOptions} />
-              {cardError && <p style={styles.cardError}>{cardError}</p>}
-              <p style={styles.testNote}>
-                🧪 Test card: <code>4242 4242 4242 4242</code> · Any future date · Any CVC
+              <p style={{ margin: 0, fontSize: '14px', color: '#10524b', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🔒 Secure Transaction Redirection:
               </p>
+              <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#555', lineHeight: 1.45 }}>
+                You will be securely redirected to the SBP-regulated Payfast portal to enter your Credit/Debit Card details or pay using Easypaisa / JazzCash wallets and authorize your bill.
+              </p>
+              {cardError && <p style={styles.cardError}>{cardError}</p>}
             </div>
           )}
 
@@ -325,8 +313,8 @@ const CheckoutForm = () => {
             <textarea name="notes" rows="3" value={formData.notes} onChange={handleChange} style={{ ...styles.input, resize: 'vertical' }} placeholder="Special instructions..." />
           </div>
 
-          <button type="submit" style={styles.submitBtn} disabled={loading || (formData.paymentMethod === 'Card' && !stripe)}>
-            {loading ? '⏳ Processing...' : formData.paymentMethod === 'Card' ? '💳 Pay & Place Order' : '📦 Place Order'}
+          <button type="submit" style={styles.submitBtn} disabled={loading}>
+            {loading ? '⏳ Processing...' : formData.paymentMethod === 'Card' ? '💳 Pay Online & Place Order' : '📦 Place Order'}
           </button>
         </form>
 

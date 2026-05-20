@@ -55,6 +55,10 @@ const orderSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  stockUpdated: {
+    type: Boolean,
+    default: false
+  },
   notes: {
     type: String,
     default: ''

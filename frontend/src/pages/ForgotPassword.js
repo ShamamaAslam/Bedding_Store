@@ -1,32 +1,24 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { loginUser } from '../services/api';
+import { Link } from 'react-router-dom';
+import axios from 'axios';
 
-const Login = () => {
+const ForgotPassword = () => {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
-  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
+    setMessage('');
+    setError('');
 
     try {
-      const res = await loginUser({ email, password });
-      if (res.data.success) {
-        login(res.data.user);
-        navigate('/');
-      } else {
-        setError(res.data.message || 'Login failed');
-      }
+      const { data } = await axios.post('http://localhost:5000/api/auth/forgotpassword', { email });
+      setMessage(data.message || 'Email sent successfully. Please check your inbox.');
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      setError(err.response?.data?.message || 'Failed to send email. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -35,9 +27,12 @@ const Login = () => {
   return (
     <div style={styles.container}>
       <div style={styles.card} className="premium-glass premium-card">
-        <h2 style={styles.title}>Welcome Back</h2>
-        <p style={styles.subtitle}>Login to your account</p>
+        <h2 style={styles.title}>Forgot Password</h2>
+        <p style={styles.subtitle}>
+          Enter your email address and we'll send you a link to reset your password.
+        </p>
 
+        {message && <div style={{...styles.error, backgroundColor: '#e7f7e7', color: '#135c13', borderColor: '#bfeac0'}}>{message}</div>}
         {error && <div style={styles.error}>{error}</div>}
 
         <form onSubmit={handleSubmit} style={styles.form}>
@@ -47,44 +42,23 @@ const Login = () => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter your registered email"
               style={styles.input}
               className="premium-input"
-              placeholder="your@email.com"
               required
             />
-          </div>
-
-          <div style={{ ...styles.inputGroup, position: 'relative' }}>
-            <label style={styles.label}>Password</label>
-            <input
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{ ...styles.input, paddingRight: '40px' }}
-              className="premium-input"
-              placeholder="••••••••"
-              required
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              style={{ position: 'absolute', right: '10px', top: '32px', background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}
-            >
-              {showPassword ? '🙈' : '👁️'}
-            </button>
           </div>
 
           <button type="submit" style={styles.button} className="premium-button" disabled={loading}>
-            {loading ? 'Logging in...' : 'Login'}
+            {loading ? 'Sending...' : 'Send Reset Link'}
           </button>
         </form>
 
-        <p style={styles.footer}>
-          <Link to="/forgotpassword" style={styles.link}>Forgot Password?</Link>
-        </p>
-        <p style={styles.footer}>
-          Don't have an account? <Link to="/register" style={styles.link}>Register here</Link>
-        </p>
+        <div style={styles.footer}>
+          <p>
+            Remembered your password? <Link to="/login" style={styles.link}>Login here</Link>
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -182,4 +156,4 @@ const styles = {
   }
 };
 
-export default Login;
+export default ForgotPassword;

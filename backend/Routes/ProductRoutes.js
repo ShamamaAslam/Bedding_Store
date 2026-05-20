@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const router = express.Router();
-const { getProducts, getProduct, createProduct, updateProduct, deleteProduct } = require('../Controllers/ProductController');
+const { getProducts, getProduct, createProduct, updateProduct, deleteProduct, createProductReview } = require('../Controllers/ProductController');
 const { protect } = require('../Middleware/authMiddleware');
 const { adminMiddleware } = require('../Middleware/AdminMiddleware');  // ← No .default
 const upload = require('../Middleware/uploadMiddleware');
@@ -38,5 +38,6 @@ router.put(
 	updateProduct
 );
 router.delete('/:id', protect, adminMiddleware, deleteProduct);
+router.post('/:id/reviews', protect, createProductReview);
 
 module.exports = router;

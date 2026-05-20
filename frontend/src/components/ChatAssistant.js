@@ -234,7 +234,8 @@ const ChatAssistant = () => {
     const prompt = (messageText || input).trim();
     if (!prompt || loading) return;
 
-    setMessages((prev) => [...prev, { role: 'user', text: prompt }]);
+    const newMsg = { role: 'user', text: prompt };
+    setMessages((prev) => [...prev, newMsg]);
     setInput('');
     setAutoSuggestions([]);
     setLoading(true);
@@ -242,8 +243,15 @@ const ChatAssistant = () => {
     trackSearchKeyword(prompt, { source: 'assistant_chat' });
 
     try {
+      // Send the entire conversation history (excluding the first initial generic greeting if desired, but we'll send it all)
+      const currentHistory = [...messages, newMsg].map(m => ({
+        role: m.role,
+        content: m.text
+      }));
+
       const payload = {
         message: prompt,
+        messages: currentHistory,
         sessionId,
         cartItems,
         recentlyViewed: getRecentlyViewedProducts(),
@@ -307,6 +315,25 @@ const ChatAssistant = () => {
 
   return (
     <>
+      <style>
+        {`
+          @keyframes chatTyping {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+          }
+          .typing-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: #7c6d61;
+            margin: 0 2px;
+            animation: chatTyping 1.4s infinite ease-in-out both;
+          }
+          .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+          .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        `}
+      </style>
       {!open && (
         <button style={styles.fab} className="hover-btn" onClick={() => setOpen(true)} title="Chat with WF AI Concierge">
           💬
@@ -334,7 +361,15 @@ const ChatAssistant = () => {
               {messages.map((m, idx) => (
                 <MessageBubble key={`${m.role}-${idx}`} message={m} onPromptClick={sendMessage} layout={layout} />
               ))}
-              {loading && <div style={{ ...styles.message, ...styles.assistantMsg }}>Thinking...</div>}
+              {loading && (
+                <div style={{ ...styles.message, ...styles.assistantMsg, width: 'fit-content' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', height: '14px', padding: '0 4px' }}>
+                    <span className="typing-dot"></span>
+                    <span className="typing-dot"></span>
+                    <span className="typing-dot"></span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

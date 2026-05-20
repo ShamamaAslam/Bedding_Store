@@ -1,4 +1,14 @@
-const API_BASE_URL = 'http://localhost:5000';
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:5000';
+    }
+    return window.location.origin;
+  }
+  return 'http://localhost:5000';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export const makeAbsoluteUrl = (url) => {
   if (!url || typeof url !== 'string') return '';

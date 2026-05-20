@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { getProduct, getProducts, addToWishlist, removeFromWishlist, assistantSeo, updateProduct } from '../services/api';
+import { getProduct, getProducts, addToWishlist, removeFromWishlist, assistantSeo, updateProduct, createProductReview } from '../services/api';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { getProductImage, getProductImages, getProductImageEntries, getProductImagesByColor } from '../utils/productImage';
@@ -34,6 +34,50 @@ const ProductDetail = () => {
   const [seoApplying, setSeoApplying] = useState(false);
   const touchStartXRef = useRef(null);
   const mouseStartXRef = useRef(null);
+
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+  const [reviewSuccess, setReviewSuccess] = useState('');
+
+  const renderStars = (rating) => {
+    const stars = [];
+    const floor = Math.floor(rating);
+    for (let i = 1; i <= 5; i++) {
+      if (i <= floor) {
+        stars.push(<span key={i} style={{ color: '#f1c40f', fontSize: '18px', marginRight: '2px' }}>★</span>);
+      } else {
+        stars.push(<span key={i} style={{ color: '#ccc', fontSize: '18px', marginRight: '2px' }}>★</span>);
+      }
+    }
+    return stars;
+  };
+
+  const handleReviewSubmit = async (e) => {
+    e.preventDefault();
+    if (!reviewComment.trim()) return;
+
+    try {
+      setReviewSubmitting(true);
+      setReviewError('');
+      setReviewSuccess('');
+      const res = await createProductReview(product._id, {
+        rating: reviewRating,
+        comment: reviewComment
+      });
+      if (res.data.success) {
+        setReviewSuccess('Review submitted successfully!');
+        setReviewComment('');
+        setReviewRating(5);
+        setProduct(res.data.product);
+      }
+    } catch (err) {
+      setReviewError(err.response?.data?.message || err.response?.data?.error || 'Failed to submit review');
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     const loadProduct = async () => {
@@ -448,6 +492,16 @@ const ProductDetail = () => {
             <h1 style={styles.title}>{product.name}</h1>
             <p style={styles.category}>{product.category?.name}</p>
 
+            {/* Rating Stars Overview */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0 12px' }}>
+              <div style={{ display: 'flex' }}>
+                {renderStars(product.averageRating || 0)}
+              </div>
+              <span style={{ fontSize: '14px', color: '#555', fontWeight: 600 }}>
+                {product.averageRating ? product.averageRating.toFixed(1) : '0.0'} ({product.numOfReviews || 0} reviews)
+              </span>
+            </div>
+
             <div style={styles.priceSection}>
               {discountPercent > 0 ? (
                 <>
@@ -578,6 +632,97 @@ const ProductDetail = () => {
 
           </div>
         </div>
+
+        {/* Reviews Section */}
+        <section style={styles.reviewsSection}>
+          <h3 style={styles.sectionTitle}>Customer Reviews ({product.numOfReviews || 0})</h3>
+          
+          <div style={styles.reviewsLayout}>
+            {/* Left: Overall Score */}
+            <div style={styles.ratingOverview}>
+              <div style={styles.averageRatingScore}>
+                {product.averageRating ? product.averageRating.toFixed(1) : '0.0'}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                {renderStars(product.averageRating || 0)}
+              </div>
+              <div style={styles.ratingCount}>
+                Based on {product.numOfReviews || 0} reviews
+              </div>
+            </div>
+
+            {/* Right: Write a Review Form */}
+            <div style={styles.reviewFormWrap}>
+              {user ? (
+                <form onSubmit={handleReviewSubmit} style={styles.reviewForm}>
+                  <h4 style={{ margin: '0 0 16px 0', color: '#1a1a2e' }}>Write a Review</h4>
+                  
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>Your Rating:</label>
+                    <div style={styles.starInputRow}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => setReviewRating(star)}
+                          style={{
+                            ...styles.starInputBtn,
+                            color: star <= reviewRating ? '#f1c40f' : '#ccc'
+                          }}
+                        >
+                          ★
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>Your Review:</label>
+                    <textarea
+                      value={reviewComment}
+                      onChange={(e) => setReviewComment(e.target.value)}
+                      placeholder="Share your experience with this product..."
+                      style={styles.reviewTextarea}
+                      rows={3}
+                      required
+                    />
+                  </div>
+
+                  {reviewError && <p style={styles.reviewError}>{reviewError}</p>}
+                  {reviewSuccess && <p style={styles.reviewSuccess}>{reviewSuccess}</p>}
+
+                  <button type="submit" style={styles.submitReviewBtn} disabled={reviewSubmitting}>
+                    {reviewSubmitting ? 'Submitting...' : 'Submit Review'}
+                  </button>
+                </form>
+              ) : (
+                <p style={styles.loginToReview}>
+                  Please <a href="/login" style={{ color: '#0e7a6d', fontWeight: 'bold' }}>login</a> to write a review.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Reviews List */}
+          <div style={styles.reviewsList}>
+            {product.reviews && product.reviews.length > 0 ? (
+              product.reviews.map((rev) => (
+                <div key={rev._id} style={styles.reviewItem}>
+                  <div style={styles.reviewHeader}>
+                    <span style={styles.reviewUser}>{rev.userName}</span>
+                    <span style={styles.reviewDate}>{new Date(rev.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  <div style={{ display: 'flex', marginBottom: '8px' }}>
+                    {renderStars(rev.rating)}
+                  </div>
+                  <p style={styles.reviewComment}>{rev.comment}</p>
+                </div>
+              ))
+            ) : (
+              <p style={styles.noReviews}>No reviews yet. Be the first to share your thoughts!</p>
+            )}
+          </div>
+        </section>
 
         <SuggestedSection title="RECENTLY VIEWED" items={recentlyViewedProducts} />
         <SuggestedSection title="Related Products" items={relatedProducts} />
@@ -890,6 +1035,159 @@ const styles = {
   },
   seoPanel: { marginTop: '18px', padding: '14px', borderRadius: '12px', border: '1px solid #eadfcc', background: 'linear-gradient(180deg,#fff,#fbf8f4)' },
   applySeoBtn: { backgroundColor: '#0e7a6d', color: '#fff', border: 'none', padding: '10px 14px', borderRadius: '10px', cursor: 'pointer' },
+  reviewsSection: {
+    backgroundColor: '#fff',
+    borderRadius: '24px',
+    padding: '28px',
+    marginTop: '32px',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.04)',
+    border: '1px solid #efe0d1',
+    textAlign: 'left'
+  },
+  sectionTitle: {
+    fontSize: '22px',
+    fontWeight: '700',
+    color: '#1a1a2e',
+    marginBottom: '24px',
+    borderBottom: '2px solid #f8f0e6',
+    paddingBottom: '12px'
+  },
+  reviewsLayout: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 2fr',
+    gap: '32px',
+    marginBottom: '32px',
+    alignItems: 'start'
+  },
+  ratingOverview: {
+    backgroundColor: '#fdfbf7',
+    borderRadius: '16px',
+    padding: '24px',
+    textAlign: 'center',
+    border: '1px solid #f3ebe1'
+  },
+  averageRatingScore: {
+    fontSize: '48px',
+    fontWeight: '800',
+    color: '#1a1a2e',
+    lineHeight: 1,
+    marginBottom: '8px'
+  },
+  ratingCount: {
+    fontSize: '14px',
+    color: '#666',
+    fontWeight: '500'
+  },
+  reviewFormWrap: {
+    backgroundColor: '#fcfcfc',
+    borderRadius: '16px',
+    padding: '24px',
+    border: '1px solid #eee'
+  },
+  reviewForm: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px'
+  },
+  formGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    alignItems: 'flex-start'
+  },
+  formLabel: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#333'
+  },
+  starInputRow: {
+    display: 'flex',
+    gap: '6px'
+  },
+  starInputBtn: {
+    background: 'none',
+    border: 'none',
+    fontSize: '28px',
+    cursor: 'pointer',
+    padding: 0,
+    lineHeight: 1,
+    transition: 'transform 0.1s ease'
+  },
+  reviewTextarea: {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '12px',
+    borderRadius: '8px',
+    border: '1px solid #ccc',
+    fontSize: '14px',
+    fontFamily: 'inherit',
+    outline: 'none',
+    resize: 'vertical'
+  },
+  submitReviewBtn: {
+    backgroundColor: '#0e7a6d',
+    color: '#fff',
+    border: 'none',
+    padding: '12px 20px',
+    borderRadius: '8px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    alignSelf: 'flex-start',
+    transition: 'background-color 0.2s'
+  },
+  reviewError: {
+    color: '#e74c3c',
+    fontSize: '14px',
+    margin: 0
+  },
+  reviewSuccess: {
+    color: '#2ecc71',
+    fontSize: '14px',
+    margin: 0
+  },
+  loginToReview: {
+    textAlign: 'center',
+    color: '#666',
+    margin: '20px 0',
+    fontSize: '15px'
+  },
+  reviewsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '20px'
+  },
+  reviewItem: {
+    borderBottom: '1px solid #eee',
+    paddingBottom: '20px',
+    textAlign: 'left'
+  },
+  reviewHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginBottom: '6px'
+  },
+  reviewUser: {
+    fontWeight: '700',
+    color: '#1a1a2e',
+    fontSize: '15px'
+  },
+  reviewDate: {
+    fontSize: '13px',
+    color: '#888'
+  },
+  reviewComment: {
+    color: '#444',
+    margin: 0,
+    fontSize: '14px',
+    lineHeight: '1.6',
+    textAlign: 'left'
+  },
+  noReviews: {
+    color: '#777',
+    textAlign: 'center',
+    padding: '24px 0',
+    fontStyle: 'italic'
+  },
 };
 
 export default ProductDetail;

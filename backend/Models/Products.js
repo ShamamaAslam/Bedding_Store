@@ -69,6 +69,15 @@ const productSchema = new mongoose.Schema({
   }],
   colors: [String],
   shadeCategories: [{ type: String, enum: ['light', 'dark'] }],
+  reviews: [{
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    userName: { type: String, required: true },
+    rating: { type: Number, required: true, min: 1, max: 5 },
+    comment: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now }
+  }],
+  averageRating: { type: Number, default: 0 },
+  numOfReviews: { type: Number, default: 0 },
   views: { type: Number, default: 0 },
   purchases: { type: Number, default: 0 },
   isActive: { type: Boolean, default: true },

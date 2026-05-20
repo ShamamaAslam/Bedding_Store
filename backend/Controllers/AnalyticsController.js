@@ -1,4 +1,4 @@
-﻿const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 const Order = require('../Models/Order');
 const Product = require('../Models/Products');
 const User = require('../Models/User');
@@ -885,9 +885,26 @@ const getPersonalizedRecommendations = async (req, res) => {
         .lean();
     }
 
+    let recommendations = (recommendationPool || []).slice(0, 8);
+    
+    if (recommendations.length < 4) {
+      const existingIds = recommendations.map(p => p._id);
+      const popular = await Product.find({
+        isActive: true,
+        stock: { $gt: 0 },
+        _id: { $nin: existingIds }
+      })
+        .select('name price discountPrice category fabricType purchases images')
+        .sort({ purchases: -1, createdAt: -1 })
+        .limit(8)
+        .lean();
+        
+      recommendations = [...recommendations, ...popular].slice(0, 8);
+    }
+
     return res.json({
       success: true,
-      recommendations: recommendationPool.slice(0, 8)
+      recommendations
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });

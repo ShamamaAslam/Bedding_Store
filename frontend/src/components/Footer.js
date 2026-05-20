@@ -48,11 +48,11 @@ const Footer = () => {
           <div style={styles.column}>
             <h4 style={styles.columnTitle}>Support</h4>
             <ul style={styles.linkList}>
-              <li><Link to="/products" style={styles.footerLink}>Contact Us</Link></li>
-              <li><Link to="/products" style={styles.footerLink}>Shipping Info</Link></li>
-              <li><Link to="/products" style={styles.footerLink}>Returns</Link></li>
+              <li><Link to="/contact" style={styles.footerLink}>Contact Us</Link></li>
+              <li><Link to="/shipping-policy" style={styles.footerLink}>Shipping Info</Link></li>
+              <li><Link to="/return-policy" style={styles.footerLink}>Returns & Refunds</Link></li>
               <li><Link to="/products" style={styles.footerLink}>FAQ</Link></li>
-              <li><Link to="/products" style={styles.footerLink}>Order Tracking</Link></li>
+              <li><Link to="/profile" style={styles.footerLink}>Order Tracking</Link></li>
             </ul>
           </div>
 
@@ -93,11 +93,11 @@ const Footer = () => {
               © {currentYear} Wajahat Fabrics and Bedding Store. All rights reserved.
             </p>
             <div style={styles.bottomLinks}>
-              <Link to="/products" style={styles.bottomLink}>Privacy Policy</Link>
+              <Link to="/privacy-policy" style={styles.bottomLink}>Privacy Policy</Link>
               <span style={styles.divider}>•</span>
-              <Link to="/products" style={styles.bottomLink}>Terms of Service</Link>
+              <Link to="/terms-conditions" style={styles.bottomLink}>Terms of Service</Link>
               <span style={styles.divider}>•</span>
-              <Link to="/products" style={styles.bottomLink}>Cookie Policy</Link>
+              <Link to="/privacy-policy" style={styles.bottomLink}>Cookie Policy</Link>
             </div>
           </div>
         </div>

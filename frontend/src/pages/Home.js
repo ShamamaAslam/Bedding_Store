@@ -32,23 +32,28 @@ const FALLBACK_CATEGORIES = [
   { name: 'Comforters', description: 'Plush comforters for year-round comfort.' }
 ];
 
+// Pre-build fallback trending items so they're always available and don't flash away
+const FALLBACK_TRENDING = FALLBACK_CATEGORIES.slice(0, 4).map((item) => ({
+  _id: item.name,
+  name: item.name,
+  description: item.description,
+  category: { name: item.name },
+  stock: 0,
+  _isFallback: true  // marker to differentiate fallback from real products
+}));
+
 const Home = () => {
-  // Start with fallback categories so the UI doesn't flash empty
+  // Start with fallback categories and trending so the UI doesn't flash empty
   const [categories, setCategories] = useState(FALLBACK_CATEGORIES);
   const [categoryImages, setCategoryImages] = useState({});
-  const [trending, setTrending] = useState([]);
+  const [trending, setTrending] = useState(FALLBACK_TRENDING);
   const [recommended, setRecommended] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const displayCategories = Array.isArray(categories) && categories.length > 0 ? categories : FALLBACK_CATEGORIES;
-  const displayTrending = trending.length > 0 ? trending : FALLBACK_CATEGORIES.slice(0, 4).map((item) => ({
-    _id: item.name,
-    name: item.name,
-    description: item.description,
-    category: { name: item.name },
-    stock: 0
-  }));
+  // Always display trending - use fallback if state is somehow empty
+  const displayTrending = (trending && trending.length > 0) ? trending : FALLBACK_TRENDING;
 
   const loadHomeData = async () => {
       try {
@@ -108,7 +113,17 @@ const Home = () => {
         }
 
         if (productsRes.status === 'fulfilled') {
-          setTrending((productsRes.value.data.products || []).slice(0, 4));
+          const prods = (productsRes.value && productsRes.value.data && Array.isArray(productsRes.value.data.products))
+            ? productsRes.value.data.products
+            : [];
+          // Only replace trending if we have valid products, never clear it
+          if (prods.length > 0) {
+            setTrending(prods.slice(0, 4));
+          }
+          // If no products, fallback items remain (already initialized in useState)
+        } else {
+          // API request failed, keep fallback items visible
+          // Do NOT clear trending - fallback items stay visible
         }
 
         if (categoriesRes.status === 'rejected' || productsRes.status === 'rejected') {
@@ -116,9 +131,11 @@ const Home = () => {
             ? (categoriesRes.reason?.response?.data?.message || categoriesRes.reason?.message)
             : (productsRes.reason?.response?.data?.message || productsRes.reason?.message);
           setError(message || 'Failed to load products. Please refresh.');
+          // Keep fallback items visible even on error - never show empty state
         }
       } catch (err) {
         setError(err.response?.data?.message || 'Failed to load products. Please refresh.');
+        // Keep fallback items visible even on error - never show empty state
       } finally {
         setLoading(false);
       }
@@ -183,18 +200,18 @@ const Home = () => {
         </div>
       </div>
 
-      <motion.div style={{ ...styles.section, ...styles.trendingSection }} variants={sectionVariants} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.18 }}>
+      <motion.div style={{ ...styles.section, ...styles.trendingSection }} variants={sectionVariants} initial="hidden" animate="visible" transition={{ duration: 0.5 }}>
         <h2 style={styles.sectionTitle}>Trending Now</h2>
         {loading && <p style={styles.loadingText}>Loading trending products...</p>}
         <div style={styles.productGrid}>
           {displayTrending.map(product => (
             <MotionLink
               key={product._id}
-              to={trending.length > 0 ? `/products/${product._id}` : `/products?category=${encodeURIComponent(product.category?.name || product.name)}`}
+              to={!product._isFallback ? `/products/${product._id}` : `/products?category=${encodeURIComponent(product.category?.name || product.name)}`}
               style={styles.productCard}
               className="premium-card"
               onClick={() => {
-                if (trending.length > 0) {
+                if (!product._isFallback) {
                   trackProductClick(product._id);
                 }
               }}
@@ -203,7 +220,7 @@ const Home = () => {
               whileTap={{ scale: 0.99 }}
             >
               <div style={styles.productImg}>
-                {trending.length > 0 && getProductImage(product) ? (
+                {!product._isFallback && getProductImage(product) ? (
                   <div style={styles.zoomWrap} className="zoom-image-wrap">
                     <img src={getProductImage(product)} alt={product.name} style={styles.productImageTag} className="zoom-target" />
                     <span style={styles.zoomPlus} className="zoom-plus-icon">+</span>
@@ -216,7 +233,7 @@ const Home = () => {
               <div style={styles.productInfo}>
                 <h3 style={styles.productName}>{product.name}</h3>
                 <p style={styles.productCat}>{product.category?.name}</p>
-                {trending.length > 0 ? (
+                {!product._isFallback ? (
                   <>
                     <div style={{ ...styles.stockBadge, ...(product.stock > 0 ? styles.inStock : styles.outOfStock) }}>
                       {product.stock > 0 ? `In Stock (${product.stock})` : 'OUT OF STOCK'}
@@ -248,7 +265,7 @@ const Home = () => {
       </motion.div>
 
       {recommended.length > 0 && (
-        <motion.div style={{ ...styles.section, ...styles.trendingSection }} variants={sectionVariants} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.18 }}>
+        <motion.div style={{ ...styles.section, ...styles.trendingSection }} variants={sectionVariants} initial="hidden" animate="visible">
           <h2 style={styles.sectionTitle}>Recommended for You</h2>
           <div style={styles.productGrid}>
             {recommended.map(product => (

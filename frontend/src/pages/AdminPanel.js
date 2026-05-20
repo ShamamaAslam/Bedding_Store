@@ -8,6 +8,7 @@ import {
   getCategories, createCategory, updateCategory, deleteCategory,
   getAllOrders, updateOrderStatus,
   getAllUsers, updateUserRole,
+  updatePassword,
   assistantSeo,
   getAnalytics
 } from '../services/api';
@@ -189,6 +190,35 @@ const AdminPanel = () => {
   const [newCategoryImageFile, setNewCategoryImageFile] = useState(null);
   const [quickCategoryName, setQuickCategoryName] = useState('');
   const [msg, setMsg] = useState({ text: '', type: 'success' });
+
+  // ── Change Password State ────────────────────────────────
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
+
+  const handleUpdatePassword = async (e) => {
+    e.preventDefault();
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      flash('❌ New passwords do not match', 'error');
+      return;
+    }
+    setPasswordLoading(true);
+    try {
+      await updatePassword({
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword
+      });
+      flash('✅ Password updated successfully!');
+      setShowPasswordModal(false);
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setShowPasswords(false);
+    } catch (err) {
+      flash('❌ ' + getApiErrorText(err), 'error');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
 
   const resolveCategoryPreviewSrc = (raw) => {
     const value = typeof raw === 'string' ? raw.trim() : '';
@@ -784,6 +814,12 @@ const AdminPanel = () => {
       <div style={s.sidebar}>
         <h2 style={s.sideTitle}>⚙️ Admin</h2>
         <p style={s.sideUser}>👤 {user?.name}</p>
+        <button 
+          onClick={() => setShowPasswordModal(true)} 
+          style={{...s.sideBtn, fontSize: '13px', padding: '6px 12px', marginBottom: '20px', backgroundColor: 'rgba(255,255,255,0.1)'}}
+        >
+          🔑 Change Password
+        </button>
         {[
           { id: 'products', label: '🛍️ Products' },
           { id: 'categories', label: '📦 Categories' },
@@ -2091,6 +2127,87 @@ const AdminPanel = () => {
           </>
         )}
       </div>
+
+      {/* Change Password Modal */}
+      {showPasswordModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: '#fff', padding: '24px', borderRadius: '12px', width: '90%', maxWidth: '400px', boxShadow: '0 10px 30px rgba(0,0,0,0.2)'
+          }}>
+            <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#1a1a2e' }}>Change Password</h3>
+            <form onSubmit={handleUpdatePassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ position: 'relative' }}>
+                <label style={s.label}>Current Password</label>
+                <input
+                  type={showPasswords ? "text" : "password"}
+                  style={{ ...s.input, paddingRight: '40px' }}
+                  value={passwordData.currentPassword}
+                  onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasswords(!showPasswords)}
+                  style={{ position: 'absolute', right: '10px', top: '32px', background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}
+                >
+                  {showPasswords ? '🙈' : '👁️'}
+                </button>
+              </div>
+              <div style={{ position: 'relative' }}>
+                <label style={s.label}>New Password</label>
+                <input
+                  type={showPasswords ? "text" : "password"}
+                  style={{ ...s.input, paddingRight: '40px' }}
+                  value={passwordData.newPassword}
+                  onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
+                  required
+                  minLength="6"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasswords(!showPasswords)}
+                  style={{ position: 'absolute', right: '10px', top: '32px', background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}
+                >
+                  {showPasswords ? '🙈' : '👁️'}
+                </button>
+              </div>
+              <div style={{ position: 'relative' }}>
+                <label style={s.label}>Confirm New Password</label>
+                <input
+                  type={showPasswords ? "text" : "password"}
+                  style={{ ...s.input, paddingRight: '40px' }}
+                  value={passwordData.confirmPassword}
+                  onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
+                  required
+                  minLength="6"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasswords(!showPasswords)}
+                  style={{ position: 'absolute', right: '10px', top: '32px', background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}
+                >
+                  {showPasswords ? '🙈' : '👁️'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button type="submit" disabled={passwordLoading} style={{...s.submitBtn, flex: 1, marginTop: 0}}>
+                  {passwordLoading ? 'Updating...' : 'Update Password'}
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setShowPasswordModal(false)}
+                  style={{...s.sideBtn, backgroundColor: '#eee', color: '#333', textAlign: 'center', flex: 1, marginTop: 0}}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

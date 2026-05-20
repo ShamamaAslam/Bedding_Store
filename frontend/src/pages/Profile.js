@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getUserOrders } from '../services/api';
+import { getUserOrders, updateOrderShippingAddress } from '../services/api';
 
 const statusColor = {
   Processing: { bg: '#fff3cd', color: '#856404' },
@@ -18,6 +18,53 @@ const Profile = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeOrder, setActiveOrder] = useState(null);
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [editAddress, setEditAddress] = useState({
+    fullName: '',
+    street: '',
+    city: '',
+    state: '',
+    pincode: '',
+    phone: ''
+  });
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [editSuccess, setEditSuccess] = useState('');
+
+  const handleStartEdit = (order) => {
+    setEditingOrder(order._id);
+    setEditAddress({
+      fullName: order.shippingAddress?.fullName || '',
+      street: order.shippingAddress?.street || '',
+      city: order.shippingAddress?.city || '',
+      state: order.shippingAddress?.state || '',
+      pincode: order.shippingAddress?.pincode || '',
+      phone: order.shippingAddress?.phone || ''
+    });
+    setEditError('');
+    setEditSuccess('');
+  };
+
+  const handleSaveAddress = async (orderId) => {
+    try {
+      setEditLoading(true);
+      setEditError('');
+      setEditSuccess('');
+      const res = await updateOrderShippingAddress(orderId, { shippingAddress: editAddress });
+      if (res.data.success) {
+        setEditSuccess('Shipping address updated successfully!');
+        // Update orders local state
+        setOrders(prev => prev.map(o => o._id === orderId ? { ...o, shippingAddress: editAddress } : o));
+        setTimeout(() => {
+          setEditingOrder(null);
+        }, 1500);
+      }
+    } catch (err) {
+      setEditError(err.response?.data?.message || err.response?.data?.error || 'Failed to update address');
+    } finally {
+      setEditLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) { navigate('/login'); return; }
@@ -139,13 +186,98 @@ const Profile = () => {
                   </div>
 
                   {/* Shipping */}
-                  <div style={{ marginBottom: '12px' }}>
-                    <p style={styles.detailLabel}>Shipping Address</p>
-                    <p style={{ margin: 0, color: '#555', fontSize: '14px' }}>
-                      {order.shippingAddress?.fullName && `${order.shippingAddress.fullName}, `}
-                      {order.shippingAddress?.street}, {order.shippingAddress?.city}, {order.shippingAddress?.state} – {order.shippingAddress?.pincode}
-                    </p>
-                    {order.shippingAddress?.phone && <p style={{ margin: '4px 0 0', color: '#888', fontSize: '13px' }}>📞 {order.shippingAddress.phone}</p>}
+                  <div style={{ marginBottom: '16px', borderBottom: '1px solid #efe4d7', paddingBottom: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <p style={styles.detailLabel}>Shipping Address</p>
+                      {['Pending', 'Processing'].includes(order.orderStatus) && editingOrder !== order._id && (
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(order)}
+                          style={styles.editAddrBtn}
+                        >
+                          ✏️ Edit
+                        </button>
+                      )}
+                    </div>
+                    
+                    {editingOrder === order._id ? (
+                      <div style={styles.editAddressForm}>
+                        <div style={styles.formRow}>
+                          <input
+                            type="text"
+                            placeholder="Full Name"
+                            value={editAddress.fullName}
+                            onChange={(e) => setEditAddress({ ...editAddress, fullName: e.target.value })}
+                            style={styles.editInput}
+                          />
+                          <input
+                            type="text"
+                            placeholder="Phone Number"
+                            value={editAddress.phone}
+                            onChange={(e) => setEditAddress({ ...editAddress, phone: e.target.value })}
+                            style={styles.editInput}
+                          />
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Street Address"
+                          value={editAddress.street}
+                          onChange={(e) => setEditAddress({ ...editAddress, street: e.target.value })}
+                          style={styles.editInput}
+                        />
+                        <div style={styles.formRow}>
+                          <input
+                            type="text"
+                            placeholder="City"
+                            value={editAddress.city}
+                            onChange={(e) => setEditAddress({ ...editAddress, city: e.target.value })}
+                            style={styles.editInput}
+                          />
+                          <input
+                            type="text"
+                            placeholder="State"
+                            value={editAddress.state}
+                            onChange={(e) => setEditAddress({ ...editAddress, state: e.target.value })}
+                            style={styles.editInput}
+                          />
+                          <input
+                            type="text"
+                            placeholder="Pincode"
+                            value={editAddress.pincode}
+                            onChange={(e) => setEditAddress({ ...editAddress, pincode: e.target.value })}
+                            style={styles.editInput}
+                          />
+                        </div>
+                        {editError && <p style={styles.editError}>{editError}</p>}
+                        {editSuccess && <p style={styles.editSuccess}>{editSuccess}</p>}
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveAddress(order._id)}
+                            disabled={editLoading}
+                            style={styles.saveAddrBtn}
+                          >
+                            {editLoading ? 'Saving...' : 'Save'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingOrder(null)}
+                            disabled={editLoading}
+                            style={styles.cancelAddrBtn}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <p style={{ margin: 0, color: '#555', fontSize: '14px', lineHeight: '1.5' }}>
+                          {order.shippingAddress?.fullName && `${order.shippingAddress.fullName}, `}
+                          {order.shippingAddress?.street}, {order.shippingAddress?.city}, {order.shippingAddress?.state} – {order.shippingAddress?.pincode}
+                        </p>
+                        {order.shippingAddress?.phone && <p style={{ margin: '4px 0 0', color: '#888', fontSize: '13px' }}>📞 {order.shippingAddress.phone}</p>}
+                      </>
+                    )}
                   </div>
 
                   {/* Payment & Tracking */}
@@ -193,6 +325,69 @@ const styles = {
   detailLabel: { fontSize: '12px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' },
   itemRow: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f5f5f5', fontSize: '14px' },
   tag: { backgroundColor: '#f0f2f5', color: '#555', padding: '2px 8px', borderRadius: '6px', fontSize: '12px' },
+  editAddrBtn: {
+    backgroundColor: '#fff',
+    border: '1px solid #0e7a6d',
+    color: '#0e7a6d',
+    padding: '4px 10px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 'bold',
+    transition: 'all 0.2s'
+  },
+  editAddressForm: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+    backgroundColor: '#fff',
+    padding: '16px',
+    borderRadius: '10px',
+    border: '1px solid #eee',
+    marginTop: '8px'
+  },
+  formRow: {
+    display: 'flex',
+    gap: '10px'
+  },
+  editInput: {
+    flex: 1,
+    padding: '8px 12px',
+    borderRadius: '6px',
+    border: '1px solid #ccc',
+    fontSize: '13px',
+    outline: 'none',
+    boxSizing: 'border-box'
+  },
+  saveAddrBtn: {
+    backgroundColor: '#0e7a6d',
+    color: '#fff',
+    border: 'none',
+    padding: '8px 16px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 'bold'
+  },
+  cancelAddrBtn: {
+    backgroundColor: '#eee',
+    color: '#333',
+    border: 'none',
+    padding: '8px 16px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '13px'
+  },
+  editError: {
+    color: '#e74c3c',
+    fontSize: '13px',
+    margin: '4px 0 0'
+  },
+  editSuccess: {
+    color: '#2ecc71',
+    fontSize: '13px',
+    margin: '4px 0 0'
+  },
 };
 
 export default Profile;

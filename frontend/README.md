@@ -1,70 +1,242 @@
-# Getting Started with Create React App
+# WF Bedding Store
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Production deployment guide for the React frontend + Node/Express backend + MongoDB Atlas database.
 
-## Available Scripts
+## Deployment Architecture
 
-In the project directory, you can run:
+```text
+Frontend (Vercel)
+   ↓ calls API
+Backend (Render)
+   ↓ connects
+MongoDB Atlas
+```
 
-### `npm start`
+## 1) Deployment Order
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Follow this order so each service has the values it needs.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+### Step 1: Create MongoDB Atlas Free Cluster
+1. Go to MongoDB Atlas and sign in.
+2. Click **Build a Database**.
+3. Choose **M0 Free**.
+4. Pick a region near your users.
+5. Create a database user in **Database Access**.
+6. In **Network Access**, allow your IP or add `0.0.0.0/0` for testing.
+7. Click **Connect** → **Drivers** and copy the connection string.
 
-### `npm test`
+### Step 2: Deploy Backend on Render
+1. Go to Render and sign in.
+2. Click **New +** → **Web Service**.
+3. Connect your GitHub repository.
+4. Select the repo.
+5. Set **Root Directory** to `backend`.
+6. Set **Environment** to Node.
+7. Set **Build Command** to `npm install`.
+8. Set **Start Command** to `npm start`.
+9. Add environment variables from the table below.
+10. Click **Create Web Service**.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### Step 3: Deploy Frontend on Vercel
+1. Go to Vercel and sign in.
+2. Click **Add New** → **Project**.
+3. Import the same GitHub repository.
+4. Set **Root Directory** to `frontend`.
+5. Keep the framework preset as React / Create React App.
+6. Set **Build Command** to `npm run build`.
+7. Add environment variables from the table below.
+8. Click **Deploy**.
 
-### `npm run build`
+### Step 4: Verify the Flow
+- Frontend on Vercel should call the backend Render API.
+- Backend on Render should connect to MongoDB Atlas.
+- Refreshing routes like `/products` or `/checkout` should work on Vercel because of `frontend/vercel.json`.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## 2) Environment Variables
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### Frontend Environment Variables
+Add these in Vercel for the `frontend` app.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+| Variable | Example Value | Purpose |
+| --- | --- | --- |
+| `REACT_APP_API_BASE_URL` | `https://your-render-service.onrender.com/api` | Points the frontend to the Render API in production |
+| `REACT_APP_STRIPE_PUBLISHABLE_KEY` | `pk_test_...` | Stripe publishable key for checkout |
 
-### `npm run eject`
+### Backend Environment Variables
+Add these in Render for the `backend` service.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+| Variable | Example Value | Purpose |
+| --- | --- | --- |
+| `MONGO_URI` | `mongodb+srv://user:pass@cluster.mongodb.net/dbname` | MongoDB Atlas connection string |
+| `JWT_SECRET` | `your-strong-secret` | JWT signing secret |
+| `FRONTEND_URL` | `https://your-vercel-app.vercel.app` | Allowed CORS origin for the deployed frontend |
+| `STRIPE_SECRET_KEY` | `sk_test_...` | Stripe secret key for backend payment APIs |
+| `PORT` | `10000` | Optional, Render sets the port automatically |
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+### Local Environment Variables
+Use these for development on your machine.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+| Variable | Example Value | Purpose |
+| --- | --- | --- |
+| `REACT_APP_API_BASE_URL` | `http://localhost:5000/api` | Local backend API |
+| `REACT_APP_STRIPE_PUBLISHABLE_KEY` | `pk_test_...` | Stripe publishable key |
+| `MONGO_URI` | `mongodb+srv://...` | Atlas or local MongoDB connection |
+| `JWT_SECRET` | `dev-secret` | Local JWT secret |
+| `FRONTEND_URL` | `http://localhost:3000` | Local CORS origin |
+| `STRIPE_SECRET_KEY` | `sk_test_...` | Stripe backend secret key |
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## 3) Local vs Production Setup
 
-## Learn More
+| Area | Local Development | Production |
+| --- | --- | --- |
+| Frontend URL | `http://localhost:3000` | Vercel URL |
+| Backend URL | `http://localhost:5000` | Render URL |
+| API Base URL | `http://localhost:5000/api` | `https://your-render-service.onrender.com/api` |
+| Backend CORS | `http://localhost:3000` | Vercel domain |
+| Database | MongoDB Atlas or local MongoDB | MongoDB Atlas free cluster |
+| Routing | React dev server handles routes | Vercel rewrite handles SPA routes |
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## 4) Exact Click Path Summary
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+### MongoDB Atlas
+1. **Build a Database**
+2. **M0 Free**
+3. **Create Database User**
+4. **Network Access** → add IP
+5. **Connect** → **Drivers**
+6. Copy connection string
 
-### Code Splitting
+### Render
+1. **New +**
+2. **Web Service**
+3. Connect GitHub repo
+4. Select repository
+5. Root Directory: `backend`
+6. Build Command: `npm install`
+7. Start Command: `npm start`
+8. Add env vars
+9. **Create Web Service**
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+### Vercel
+1. **Add New**
+2. **Project**
+3. Import GitHub repo
+4. Root Directory: `frontend`
+5. Build Command: `npm run build`
+6. Add env vars
+7. **Deploy**
 
-### Analyzing the Bundle Size
+## 5) Common Deployment Errors and Fixes
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+### CORS Error
+**Symptom:** Browser blocks API requests from Vercel.
 
-### Making a Progressive Web App
+**Fix:**
+- Set `FRONTEND_URL` on Render to your exact Vercel URL.
+- Make sure backend uses CORS with that origin.
+- Redeploy the backend after changing env vars.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+### API Not Found / 404
+**Symptom:** Frontend calls localhost or wrong API URL in production.
 
-### Advanced Configuration
+**Fix:**
+- Set `REACT_APP_API_BASE_URL` on Vercel to your Render API URL.
+- Confirm the URL ends with `/api`.
+- Rebuild and redeploy the frontend.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+### Build Error on Vercel
+**Symptom:** Deployment fails during `npm run build`.
 
-### Deployment
+**Fix:**
+- Make sure the root directory is `frontend`.
+- Check for missing environment variables.
+- Run this locally before pushing:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+```bash
+cd frontend
+npm run build
+```
 
-### `npm run build` fails to minify
+### Backend Fails to Start on Render
+**Symptom:** Render service crashes or never becomes healthy.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+**Fix:**
+- Confirm `MONGO_URI` is correct.
+- Confirm `JWT_SECRET` is set.
+- Check Render logs for syntax/runtime errors.
+- Make sure the start command is `npm start`.
+
+### MongoDB Connection Fails
+**Symptom:** Backend cannot connect to Atlas.
+
+**Fix:**
+- Confirm Atlas database user credentials.
+- Confirm your Atlas network access allows the server.
+- Re-check the copied connection string.
+
+### React Refresh / Direct Route 404 on Vercel
+**Symptom:** `/products`, `/cart`, or `/checkout` breaks when refreshed.
+
+**Fix:**
+- Keep `frontend/vercel.json` in the project.
+- Redeploy the frontend after pushing that file.
+
+## 6) Post-Deployment Testing Checklist
+
+### Frontend Checks
+- [ ] Open the Vercel site in a browser.
+- [ ] Home page loads without console errors.
+- [ ] Categories load correctly.
+- [ ] Product listing loads.
+- [ ] Product detail page opens.
+- [ ] Cart page works.
+- [ ] Checkout page loads.
+- [ ] Refresh a route like `/products` and confirm it still works.
+
+### Backend Checks
+- [ ] Render service shows healthy logs.
+- [ ] `/api/categories` returns data.
+- [ ] `/api/products` returns data.
+- [ ] Auth/login routes respond correctly.
+- [ ] CORS requests from Vercel are allowed.
+
+### Database Checks
+- [ ] Atlas cluster is active.
+- [ ] App can read categories/products from Atlas.
+- [ ] Admin actions create/update data successfully.
+
+### Integration Checks
+- [ ] Frontend API requests go to Render, not localhost.
+- [ ] Render connects to Atlas successfully.
+- [ ] Images and uploaded assets display correctly.
+- [ ] No mixed-content or CORS warnings in the browser console.
+
+## 7) Local Development Commands
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+```bash
+cd frontend
+npm install
+npm start
+```
+
+## 8) Production Build Check
+
+Before deploying, verify the frontend build locally:
+
+```bash
+cd frontend
+npm run build
+```
+
+## 9) Notes
+
+- The frontend automatically uses the value from `REACT_APP_API_BASE_URL` when deployed.
+- The backend automatically allows the origin from `FRONTEND_URL`.
+- The backend serves uploaded files from `/uploads`.
+- This setup keeps development and production separate without changing business logic.

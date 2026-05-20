@@ -9,12 +9,21 @@ import Products from './pages/Products';
 import ProductDetail from './pages/ProductDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Cart from './pages/Cart';
 import AdminPanel from './pages/AdminPanel';
 import Checkout from './pages/Checkout';
 import ThankYou from './pages/ThankYou';
 import Profile from './pages/Profile';
 import Wishlist from './pages/Wishlist';
+import SecureGateway from './pages/SecureGateway';
+import Contact from './pages/Contact';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import TermsConditions from './pages/TermsConditions';
+import ReturnPolicy from './pages/ReturnPolicy';
+import ShippingPolicy from './pages/ShippingPolicy';
+import NotFound from './pages/NotFound';
 
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -85,8 +94,15 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/products" element={<Products />} />
               <Route path="/products/:id" element={<ProductDetail />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+              <Route path="/terms-conditions" element={<TermsConditions />} />
+              <Route path="/return-policy" element={<ReturnPolicy />} />
+              <Route path="/shipping-policy" element={<ShippingPolicy />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/forgotpassword" element={<ForgotPassword />} />
+              <Route path="/resetpassword/:resettoken" element={<ResetPassword />} />
               <Route path="/cart" element={<Cart />} />
               <Route
                 path="/wishlist"
@@ -121,6 +137,14 @@ function App() {
                 }
               />
               <Route
+                path="/payment/secure-gateway"
+                element={
+                  <ProtectedRoute>
+                    <SecureGateway />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/admin"
                 element={
                   <AdminRoute>
@@ -128,6 +152,7 @@ function App() {
                   </AdminRoute>
                 }
               />
+              <Route path="*" element={<NotFound />} />
             </Routes>
             <ChatAssistant />
             <Footer />

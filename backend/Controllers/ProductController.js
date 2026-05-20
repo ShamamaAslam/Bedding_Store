@@ -248,7 +248,7 @@ const validateNonNegativeNumbers = (payload) => {
 
 const getProducts = async (req, res) => {
   try {
-    const { category, minPrice, maxPrice, fabricType, sort, search, availability } = req.query;
+    const { category, minPrice, maxPrice, fabricType, sort, search, availability, shade } = req.query;
     let filter = { isActive: true };
 
     if (category) {
@@ -267,6 +267,12 @@ const getProducts = async (req, res) => {
     }
     if (fabricType) {
       filter.fabricType = { $regex: `^${escapeRegex(String(fabricType).trim())}$`, $options: 'i' };
+    }
+    if (shade) {
+      const shadeValue = String(shade).trim().toLowerCase();
+      if (shadeValue === 'light' || shadeValue === 'dark') {
+        filter.shadeCategories = shadeValue;
+      }
     }
     if (availability === 'in_stock') filter.stock = { $gt: 0 };
     if (availability === 'out_of_stock') filter.stock = 0;
@@ -413,12 +419,68 @@ const updateProduct = async (req, res) => {
 
 const deleteProduct = async (req, res) => {
   try {
-    const product = await Product.findByIdAndDelete(req.params.id);
+    const product = await Product.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true });
     if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
-    res.json({ success: true, message: 'Product deleted' });
+    res.json({ success: true, message: 'Product de-activated successfully (soft-deleted)' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
-module.exports = { getProducts, getProduct, createProduct, updateProduct, deleteProduct };
+// Submit or update a product review
+const createProductReview = async (req, res) => {
+  try {
+    const { rating, comment } = req.body;
+    
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid rating between 1 and 5.' });
+    }
+    if (!comment || !comment.trim()) {
+      return res.status(400).json({ success: false, message: 'Please provide a review comment.' });
+    }
+
+    const product = await Product.findById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found.' });
+    }
+
+    // Check if user already reviewed the product
+    const alreadyReviewed = product.reviews.find(
+      (r) => r.user.toString() === req.user.id.toString()
+    );
+
+    if (alreadyReviewed) {
+      // Update existing review
+      alreadyReviewed.rating = Number(rating);
+      alreadyReviewed.comment = comment.trim();
+      alreadyReviewed.createdAt = new Date();
+    } else {
+      // Add new review
+      const review = {
+        user: req.user.id,
+        userName: req.user.name,
+        rating: Number(rating),
+        comment: comment.trim()
+      };
+      product.reviews.push(review);
+    }
+
+    product.numOfReviews = product.reviews.length;
+    
+    // Calculate average rating
+    const totalRating = product.reviews.reduce((acc, item) => item.rating + acc, 0);
+    product.averageRating = product.reviews.length > 0 ? (totalRating / product.reviews.length) : 0;
+
+    await product.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Review submitted successfully!',
+      product
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+module.exports = { getProducts, getProduct, createProduct, updateProduct, deleteProduct, createProductReview };
