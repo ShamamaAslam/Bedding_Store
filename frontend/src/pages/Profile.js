@@ -202,7 +202,7 @@ const Profile = () => {
                     
                     {editingOrder === order._id ? (
                       <div style={styles.editAddressForm}>
-                        <div style={styles.formRow}>
+                        <div style={styles.formRow} className="responsive-form-row">
                           <input
                             type="text"
                             placeholder="Full Name"
@@ -225,7 +225,7 @@ const Profile = () => {
                           onChange={(e) => setEditAddress({ ...editAddress, street: e.target.value })}
                           style={styles.editInput}
                         />
-                        <div style={styles.formRow}>
+                        <div style={styles.formRow} className="responsive-form-row">
                           <input
                             type="text"
                             placeholder="City"

@@ -188,7 +188,7 @@ const SecureGateway = () => {
                       style={styles.input}
                     />
                   </div>
-                  <div style={styles.row}>
+                  <div style={styles.row} className="responsive-form-row">
                     <div style={styles.formGroup}>
                       <label style={styles.label}>Expiry Date</label>
                       <input

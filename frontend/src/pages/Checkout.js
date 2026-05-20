@@ -232,7 +232,7 @@ const CheckoutForm = () => {
     <div style={styles.container}>
       <h1 style={styles.title}>Checkout</h1>
 
-      <div style={styles.layout}>
+      <div style={styles.layout} className="checkout-grid-layout">
         {/* Left — Shipping + Payment Form */}
         <form onSubmit={handleSubmit} style={styles.form}>
           <h2 style={styles.sectionTitle}>Shipping Address</h2>
@@ -253,7 +253,7 @@ const CheckoutForm = () => {
             </div>
           ))}
 
-          <div style={styles.row}>
+          <div style={styles.row} className="responsive-form-row">
             <div style={styles.formGroup}>
               <label style={styles.label}>State / Province *</label>
               <select name="state" value={formData.state} onChange={(e) => setFormData({ ...formData, state: e.target.value, city: '' })} required style={styles.input}>
@@ -270,7 +270,7 @@ const CheckoutForm = () => {
             </div>
           </div>
 
-          <div style={styles.row}>
+          <div style={styles.row} className="responsive-form-row">
             <div style={styles.formGroup}>
               <label style={styles.label}>Pincode *</label>
               <input type="text" name="pincode" value={formData.pincode} onChange={handleChange} required style={styles.input} />
@@ -319,7 +319,7 @@ const CheckoutForm = () => {
         </form>
 
         {/* Right — Order Summary */}
-        <div style={styles.summary}>
+        <div style={styles.summary} className="checkout-summary-box">
           <h2 style={styles.sectionTitle}>Order Summary</h2>
 
           {cartItems.map(item => (

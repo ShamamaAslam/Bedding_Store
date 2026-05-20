@@ -19,12 +19,12 @@ const Cart = () => {
     <div style={styles.container}>
       <h1 style={styles.title}>Shopping Cart ({totalItems} items)</h1>
       
-      <div style={styles.cartContainer}>
+      <div style={styles.cartContainer} className="cart-grid-layout">
         {/* Cart Items */}
         <div style={styles.itemsSection}>
           {cartItems.map(item => (
-            <div key={`${item._id}-${item.selectedSize || 'nosize'}-${item.selectedColor || 'nocolor'}`} style={styles.cartItem}>
-              <div style={styles.itemInfo}>
+            <div key={`${item._id}-${item.selectedSize || 'nosize'}-${item.selectedColor || 'nocolor'}`} style={styles.cartItem} className="cart-item-row">
+              <div style={styles.itemInfo} className="cart-item-info">
                 <div style={styles.itemIcon}>🛍️</div>
                 <div>
                   <h3 style={styles.itemName}>{item.name}</h3>
@@ -37,7 +37,7 @@ const Cart = () => {
                 </div>
               </div>
               
-              <div style={styles.itemActions}>
+              <div style={styles.itemActions} className="cart-item-actions-row">
                 <div style={styles.quantityControl}>
                   <button onClick={() => updateQuantity(item._id, item.quantity - 1, item.selectedSize, item.selectedColor)}>-</button>
                   <span>{item.quantity}</span>

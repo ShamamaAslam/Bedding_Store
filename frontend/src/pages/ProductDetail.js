@@ -419,7 +419,7 @@ const ProductDetail = () => {
       <div style={styles.container}>
         <button onClick={() => navigate(-1)} style={styles.backBtn}>← Back</button>
 
-        <div style={styles.productContainer}>
+        <div style={styles.productContainer} className="responsive-grid-layout">
           {/* Image */}
           <div style={styles.imageSection}>
             {productImageUrl ? (
@@ -465,7 +465,7 @@ const ProductDetail = () => {
             )}
 
             {imageEntries.length > 1 && (
-              <div style={styles.thumbRow}>
+              <div style={styles.thumbRow} className="thumbnail-list-row">
                 {imageEntries.map((imageEntry, index) => (
                   <button
                     key={`${imageEntry.url}-${index}`}
@@ -637,7 +637,7 @@ const ProductDetail = () => {
         <section style={styles.reviewsSection}>
           <h3 style={styles.sectionTitle}>Customer Reviews ({product.numOfReviews || 0})</h3>
           
-          <div style={styles.reviewsLayout}>
+          <div style={styles.reviewsLayout} className="responsive-grid-layout">
             {/* Left: Overall Score */}
             <div style={styles.ratingOverview}>
               <div style={styles.averageRatingScore}>

@@ -30,7 +30,7 @@ const Contact = () => {
         <h1 style={styles.title}>Contact Us</h1>
         <p style={styles.subtitle}>We would love to hear from you. Get in touch with Wajahat Fabrics support team.</p>
 
-        <div style={styles.layout}>
+        <div style={styles.layout} className="responsive-grid-layout">
           {/* Info Side */}
           <div style={styles.infoCol}>
             <h2 style={styles.sectionTitle}>Get In Touch</h2>

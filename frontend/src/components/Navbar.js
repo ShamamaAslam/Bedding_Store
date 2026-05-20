@@ -12,6 +12,19 @@ const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+      if (window.innerWidth >= 768) {
+        setMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize, { passive: true });
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const updateScrolled = () => setScrolled(window.scrollY > 18);
@@ -29,9 +42,74 @@ const Navbar = () => {
 
   const navStyle = {
     ...styles.nav,
-    ...(overlayMode ? styles.navOverlay : styles.navSolid)
+    ...(overlayMode ? styles.navOverlay : styles.navSolid),
+    ...(isMobile ? { padding: '10px 16px', minHeight: '72px', flexWrap: 'nowrap', justifyContent: 'space-between', gap: 0 } : {})
   };
 
+  if (isMobile) {
+    return (
+      <nav style={navStyle} className="premium-navbar">
+        {/* Mobile Left: Menu Toggle Button */}
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          style={styles.mobileMenuToggle}
+          aria-label="Toggle Navigation Menu"
+        >
+          {mobileMenuOpen ? '✕' : '☰'}
+        </button>
+
+        {/* Mobile Center: Brand Identity */}
+        <Link to="/" style={styles.brandMobile} className="premium-link" onClick={() => setMobileMenuOpen(false)}>
+          <div style={styles.brandLogoShellMobile}>
+            <img src={`${publicUrl}/brand-logo.png`} alt="WF Logo" style={styles.brandLogo} />
+          </div>
+          <span style={styles.brandTitleMobile}>WF Bedding</span>
+        </Link>
+
+        {/* Mobile Right: Cart Icon */}
+        <Link to="/cart" style={styles.cartBtnMobile} className="premium-button" onClick={() => setMobileMenuOpen(false)}>
+          🛒
+          {totalItems > 0 && <span style={styles.badgeMobile}>{totalItems}</span>}
+        </Link>
+
+        {/* Mobile Menu Dropdown Overlay */}
+        {mobileMenuOpen && (
+          <div style={styles.mobileMenuOverlay}>
+            <div style={styles.mobileMenuContent}>
+              {/* Search bar inside the menu */}
+              <div style={{ marginBottom: '20px', width: '100%', display: 'flex', justifyContent: 'center' }}>
+                <SearchBar />
+              </div>
+
+              {/* Navigation links inside the menu */}
+              <div style={styles.mobileLinksList}>
+                <Link to="/products" style={styles.mobileNavLink} onClick={() => setMobileMenuOpen(false)}>🛍️ Shop Products</Link>
+                
+                {user ? (
+                  <>
+                    <Link to="/wishlist" style={styles.mobileNavLink} onClick={() => setMobileMenuOpen(false)}>♡ My Wishlist</Link>
+                    <Link to="/profile" style={styles.mobileNavLink} onClick={() => setMobileMenuOpen(false)}>📦 My Orders</Link>
+                    <span style={styles.mobileUsername}>Logged in as: <b>{user.name}</b></span>
+                    {user.role === 'admin' && (
+                      <Link to="/admin" style={styles.mobileAdminLink} onClick={() => setMobileMenuOpen(false)}>⚙️ Admin Dashboard</Link>
+                    )}
+                    <button style={styles.mobileLogoutBtn} onClick={() => { setMobileMenuOpen(false); handleLogout(); }}>Logout</button>
+                  </>
+                ) : (
+                  <div style={styles.mobileAuthRow}>
+                    <Link to="/login" style={styles.mobileLoginBtn} onClick={() => setMobileMenuOpen(false)}>Login</Link>
+                    <Link to="/register" style={styles.mobileRegisterBtn} onClick={() => setMobileMenuOpen(false)}>Sign Up</Link>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </nav>
+    );
+  }
+
+  // Desktop view
   return (
     <nav style={navStyle}>
       <Link to="/" style={styles.brand} className="premium-link" aria-label="Wajahat Fabrics Home">
@@ -208,6 +286,174 @@ const styles = {
     borderRadius: '999px',
     fontSize: '14px',
     fontWeight: 600
+  },
+  mobileMenuToggle: {
+    background: 'none',
+    border: 'none',
+    color: '#0e7a6d',
+    fontSize: '26px',
+    cursor: 'pointer',
+    padding: '4px 8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1002
+  },
+  brandMobile: {
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    background: 'linear-gradient(135deg, rgba(255,255,255,0.85), rgba(250,242,230,0.6))',
+    border: '1px solid rgba(228, 215, 200, 0.6)',
+    borderRadius: '12px',
+    padding: '4px 10px 4px 6px',
+    boxShadow: '0 4px 12px rgba(45, 33, 24, 0.05)'
+  },
+  brandLogoShellMobile: {
+    width: '32px',
+    height: '32px',
+    borderRadius: '6px',
+    background: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden'
+  },
+  brandTitleMobile: {
+    fontFamily: 'Playfair Display, serif',
+    fontSize: '15px',
+    fontWeight: 800,
+    color: '#16282d'
+  },
+  cartBtnMobile: {
+    position: 'relative',
+    background: 'linear-gradient(135deg, #0e7a6d, #0a564d)',
+    color: 'white',
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '18px',
+    textDecoration: 'none',
+    boxShadow: '0 4px 12px rgba(10,86,77,0.2)'
+  },
+  badgeMobile: {
+    position: 'absolute',
+    top: '-4px',
+    right: '-4px',
+    backgroundColor: '#f5bd7e',
+    color: '#2c231d',
+    borderRadius: '50%',
+    width: '16px',
+    height: '16px',
+    fontSize: '10px',
+    fontWeight: 'bold',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  mobileMenuOverlay: {
+    position: 'fixed',
+    top: '72px',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    background: 'rgba(25, 22, 19, 0.45)',
+    backdropFilter: 'blur(12px)',
+    zIndex: 999,
+    display: 'flex',
+    flexDirection: 'column'
+  },
+  mobileMenuContent: {
+    background: 'rgba(255, 253, 248, 0.96)',
+    borderBottom: '1px solid rgba(228, 215, 200, 0.6)',
+    padding: '24px 20px 30px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    boxShadow: '0 20px 40px rgba(0,0,0,0.15)'
+  },
+  mobileLinksList: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '14px',
+    alignItems: 'center'
+  },
+  mobileNavLink: {
+    color: '#3e342e',
+    textDecoration: 'none',
+    fontSize: '16px',
+    fontWeight: 600,
+    padding: '10px 18px',
+    borderRadius: '12px',
+    background: 'rgba(240, 230, 218, 0.3)',
+    border: '1px solid rgba(228, 215, 200, 0.2)',
+    width: '100%',
+    textAlign: 'center',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+  },
+  mobileAdminLink: {
+    color: '#8f4e14',
+    textDecoration: 'none',
+    fontSize: '15px',
+    fontWeight: 700,
+    padding: '10px 18px',
+    borderRadius: '12px',
+    background: '#fff3e6',
+    border: '1px solid #d9a36f',
+    width: '100%',
+    textAlign: 'center'
+  },
+  mobileUsername: {
+    color: '#8f7f77',
+    fontSize: '13px',
+    marginTop: '6px',
+    textAlign: 'center'
+  },
+  mobileLogoutBtn: {
+    background: 'none',
+    border: '1px solid #c9b7aa',
+    color: '#675a52',
+    padding: '10px 18px',
+    borderRadius: '12px',
+    cursor: 'pointer',
+    width: '100%',
+    fontSize: '14px',
+    fontWeight: 600,
+    marginTop: '8px'
+  },
+  mobileAuthRow: {
+    width: '100%',
+    display: 'flex',
+    gap: '12px',
+    marginTop: '8px'
+  },
+  mobileLoginBtn: {
+    flex: 1,
+    textAlign: 'center',
+    color: '#554a43',
+    textDecoration: 'none',
+    padding: '12px',
+    borderRadius: '12px',
+    border: '1px solid #c9b7aa',
+    fontSize: '14px',
+    fontWeight: 600
+  },
+  mobileRegisterBtn: {
+    flex: 1,
+    textAlign: 'center',
+    background: 'linear-gradient(135deg, #ce7a36, #b05f22)',
+    color: 'white',
+    textDecoration: 'none',
+    padding: '12px',
+    borderRadius: '12px',
+    fontSize: '14px',
+    fontWeight: 600,
+    boxShadow: '0 4px 12px rgba(206,122,54,0.2)'
   }
 };
 
