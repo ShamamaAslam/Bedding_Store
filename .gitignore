@@ -26,6 +26,5 @@ Thumbs.db
 .vscode/
 
 # Runtime uploads and temp files
-backend/uploads/
 tmp/
 temp/
