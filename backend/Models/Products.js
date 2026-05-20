@@ -51,6 +51,7 @@ const productSchema = new mongoose.Schema({
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'Categories', required: true },
   price: { type: Number, required: true, min: 0 },
   discountPrice: { type: Number, min: 0 },
+  discountExpires: { type: Date },
   costPrice: { type: Number, min: 0, default: 0 },
   shippingCost: { type: Number, min: 0, default: 0 },
   marketingCost: { type: Number, min: 0, default: 0 },

@@ -177,6 +177,12 @@ const buildProductPayload = (req, { forUpdate = false } = {}) => {
     payload.discountPrice = Number(body.discountPrice);
   }
 
+  if (body.discountExpires === '') {
+    payload.discountExpires = null;
+  } else if (body.discountExpires !== undefined) {
+    payload.discountExpires = body.discountExpires ? new Date(body.discountExpires) : null;
+  }
+
   if (body.colors !== undefined) payload.colors = parseArrayField(body.colors);
   if (body.shadeCategories !== undefined) payload.shadeCategories = parseShadeCategories(body.shadeCategories);
   if (body.sizes !== undefined) payload.sizes = parseArrayField(body.sizes);
@@ -394,10 +400,11 @@ const updateProduct = async (req, res) => {
 
     if (shouldUnsetDiscountPrice) {
       delete payload.discountPrice;
+      delete payload.discountExpires;
     }
 
     const updateDoc = shouldUnsetDiscountPrice
-      ? { $set: payload, $unset: { discountPrice: 1 } }
+      ? { $set: payload, $unset: { discountPrice: 1, discountExpires: 1 } }
       : payload;
 
     const product = await Product.findByIdAndUpdate(req.params.id, updateDoc, { new: true, runValidators: true });

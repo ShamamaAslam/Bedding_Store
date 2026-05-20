@@ -34,6 +34,15 @@ const getBasePrice = (product, selectedSize) => {
 
 export const getStoreSalePercent = () => {
   try {
+    const expires = localStorage.getItem('wf_store_sale_expires');
+    if (expires) {
+      const expireTime = new Date(expires).getTime();
+      if (Date.now() > expireTime) {
+        localStorage.removeItem(STORE_SALE_KEY);
+        localStorage.removeItem('wf_store_sale_expires');
+        return 0;
+      }
+    }
     const value = Number(localStorage.getItem(STORE_SALE_KEY) || 0);
     return Number.isFinite(value) && value > 0 ? Math.min(90, value) : 0;
   } catch {
@@ -45,12 +54,31 @@ export const getEffectivePrice = (product, selectedSize = product?.selectedSize)
   if (!product) return 0;
 
   const basePrice = getBasePrice(product, selectedSize);
-  const productDiscount = Array.isArray(product.sizePrices) && product.sizePrices.length > 0
-    ? 0
-    : Number(product.discountPrice || 0);
+  
+  // Check if product-level discount has expired
+  let hasValidProductDiscount = false;
+  let productDiscount = 0;
+  
+  if (!(Array.isArray(product.sizePrices) && product.sizePrices.length > 0)) {
+    const discountVal = Number(product.discountPrice || 0);
+    if (discountVal > 0) {
+      const expires = product.discountExpires;
+      if (expires) {
+        const expireTime = new Date(expires).getTime();
+        if (Date.now() <= expireTime) {
+          hasValidProductDiscount = true;
+          productDiscount = discountVal;
+        }
+      } else {
+        hasValidProductDiscount = true;
+        productDiscount = discountVal;
+      }
+    }
+  }
+
   const storeSale = getStoreSalePercent();
 
-  if (productDiscount > 0) {
+  if (hasValidProductDiscount && productDiscount > 0) {
     return productDiscount;
   }
 
@@ -64,10 +92,29 @@ export const getEffectivePrice = (product, selectedSize = product?.selectedSize)
 export const getSaleLabel = (product, selectedSize = product?.selectedSize) => {
   if (!product) return '';
 
+  let hasValidProductDiscount = false;
+  let discounted = 0;
+
   if (product.discountPrice && !(Array.isArray(product.sizePrices) && product.sizePrices.length > 0)) {
+    const discountVal = Number(product.discountPrice || 0);
+    if (discountVal > 0) {
+      const expires = product.discountExpires;
+      if (expires) {
+        const expireTime = new Date(expires).getTime();
+        if (Date.now() <= expireTime) {
+          hasValidProductDiscount = true;
+          discounted = discountVal;
+        }
+      } else {
+        hasValidProductDiscount = true;
+        discounted = discountVal;
+      }
+    }
+  }
+
+  if (hasValidProductDiscount && discounted > 0) {
     const original = getBasePrice(product, selectedSize);
-    const discounted = Number(product.discountPrice || 0);
-    if (original > 0 && discounted > 0 && discounted < original) {
+    if (original > 0 && discounted < original) {
       return Math.round(((original - discounted) / original) * 100);
     }
     return 0;
@@ -82,17 +129,23 @@ export const getOriginalPrice = (product, selectedSize = product?.selectedSize) 
   return getBasePrice(product, selectedSize);
 };
 
-export const setStoreSalePercent = (percent) => {
+export const setStoreSalePercent = (percent, expiresAt = null) => {
   try {
     const value = Number(percent);
     if (!Number.isFinite(value) || value <= 0) {
       localStorage.removeItem(STORE_SALE_KEY);
+      localStorage.removeItem('wf_store_sale_expires');
       window.dispatchEvent(new StorageEvent('storage', { key: STORE_SALE_KEY, newValue: null }));
       return 0;
     }
 
     const normalized = Math.min(90, Math.max(0, Math.round(value)));
     localStorage.setItem(STORE_SALE_KEY, String(normalized));
+    if (expiresAt) {
+      localStorage.setItem('wf_store_sale_expires', new Date(expiresAt).toISOString());
+    } else {
+      localStorage.removeItem('wf_store_sale_expires');
+    }
     window.dispatchEvent(new StorageEvent('storage', { key: STORE_SALE_KEY, newValue: String(normalized) }));
     return normalized;
   } catch {
@@ -100,4 +153,7 @@ export const setStoreSalePercent = (percent) => {
   }
 };
 
-export const clearStoreSale = () => setStoreSalePercent(0);
+export const clearStoreSale = () => {
+  localStorage.removeItem('wf_store_sale_expires');
+  setStoreSalePercent(0);
+};

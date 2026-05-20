@@ -177,6 +177,9 @@ const AdminPanel = () => {
   const [discountScope, setDiscountScope] = useState('all');
   const [selectedDiscountProductIds, setSelectedDiscountProductIds] = useState([]);
   const [discountBusy, setDiscountBusy] = useState(false);
+  const [discountDurationType, setDiscountDurationType] = useState('indefinite'); // 'indefinite' | 'limited'
+  const [discountDurationDays, setDiscountDurationDays] = useState(0);
+  const [discountDurationHours, setDiscountDurationHours] = useState(0);
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [productCategoryFilter, setProductCategoryFilter] = useState('all');
   const [productShadeFilter, setProductShadeFilter] = useState('all');
@@ -672,6 +675,9 @@ const AdminPanel = () => {
   const openDiscountDialog = (mode) => {
     setDiscountDialog({ open: true, mode });
     setDiscountScope('all');
+    setDiscountDurationType('indefinite');
+    setDiscountDurationDays(0);
+    setDiscountDurationHours(0);
   };
 
   const closeDiscountDialog = () => {
@@ -710,10 +716,24 @@ const AdminPanel = () => {
       return;
     }
 
+    let expiresAt = null;
+    if (isApply && discountDurationType === 'limited') {
+      const days = Number(discountDurationDays) || 0;
+      const hours = Number(discountDurationHours) || 0;
+      if (days <= 0 && hours <= 0) {
+        flash('❌ Please set a duration in days or hours', 'error');
+        return;
+      }
+      const now = new Date();
+      now.setDate(now.getDate() + days);
+      now.setHours(now.getHours() + hours);
+      expiresAt = now;
+    }
+
     setDiscountBusy(true);
     try {
       if (isApply && isAll) {
-        const normalized = setStoreSalePercent(percent);
+        const normalized = setStoreSalePercent(percent, expiresAt);
         setStoreSalePercentState(normalized);
       }
 
@@ -724,9 +744,12 @@ const AdminPanel = () => {
 
       for (const product of targets) {
         if (isApply) {
-          await updateProduct(product._id, { discountPrice: discountedPrice(product.price, percent) });
+          await updateProduct(product._id, { 
+            discountPrice: discountedPrice(product.price, percent),
+            discountExpires: expiresAt ? expiresAt.toISOString() : ''
+          });
         } else {
-          await updateProduct(product._id, { discountPrice: '' });
+          await updateProduct(product._id, { discountPrice: '', discountExpires: '' });
         }
       }
 
@@ -765,7 +788,7 @@ const AdminPanel = () => {
     setDiscountBusy(true);
     try {
       for (const product of targets) {
-        await updateProduct(product._id, { discountPrice: '' });
+        await updateProduct(product._id, { discountPrice: '', discountExpires: '' });
       }
 
       await loadProducts();
@@ -920,6 +943,61 @@ const AdminPanel = () => {
                   ))}
                 </div>
               </>
+            )}
+
+            {discountDialog.mode === 'apply' && (
+              <div style={{ marginTop: '14px', borderTop: '1px solid #efefef', paddingTop: '14px', marginBottom: '8px' }}>
+                <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#1a1a2e', marginBottom: '8px' }}>⏰ Discount Duration</div>
+                <div style={{ display: 'flex', gap: '16px', marginBottom: '10px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#444', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="discountDurationType"
+                      value="indefinite"
+                      checked={discountDurationType === 'indefinite'}
+                      onChange={() => setDiscountDurationType('indefinite')}
+                    />
+                    Indefinite (No time limit)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#444', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="discountDurationType"
+                      value="limited"
+                      checked={discountDurationType === 'limited'}
+                      onChange={() => setDiscountDurationType('limited')}
+                    />
+                    Apply for a specific time
+                  </label>
+                </div>
+
+                {discountDurationType === 'limited' && (
+                  <div style={{ display: 'flex', gap: '14px', alignItems: 'center', backgroundColor: '#fcfcfc', border: '1px solid #eee', borderRadius: '8px', padding: '10px', marginTop: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        style={{ ...s.input, width: '64px', padding: '6px 8px', fontSize: '13px', boxSizing: 'border-box' }}
+                        value={discountDurationDays}
+                        onChange={(e) => setDiscountDurationDays(Math.max(0, parseInt(e.target.value) || 0))}
+                      />
+                      <span style={{ fontSize: '13px', color: '#555' }}>Days</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        style={{ ...s.input, width: '64px', padding: '6px 8px', fontSize: '13px', boxSizing: 'border-box' }}
+                        value={discountDurationHours}
+                        onChange={(e) => setDiscountDurationHours(Math.max(0, parseInt(e.target.value) || 0))}
+                      />
+                      <span style={{ fontSize: '13px', color: '#555' }}>Hours</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             <div style={s.discountDialogActions}>

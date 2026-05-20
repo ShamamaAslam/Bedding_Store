@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 
 const Footer = () => {
   const currentYear = new Date().getFullYear();
-    const publicUrl = process.env.PUBLIC_URL || '';
+  const publicUrl = process.env.PUBLIC_URL || '';
 
   return (
     <footer style={styles.footer}>
@@ -91,6 +91,10 @@ const Footer = () => {
           <div style={styles.bottomContent}>
             <p style={styles.copyright}>
               © {currentYear} Wajahat Fabrics and Bedding Store. All rights reserved.
+              <br />
+              <span style={{ fontSize: '11px', color: '#888', marginTop: '4px', display: 'inline-block' }}>
+                Disclaimer: This is a student class project for learning purposes. The product images are taken from various websites.
+              </span>
             </p>
             <div style={styles.bottomLinks}>
               <Link to="/privacy-policy" style={styles.bottomLink}>Privacy Policy</Link>
