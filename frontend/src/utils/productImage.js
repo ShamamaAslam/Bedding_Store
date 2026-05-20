@@ -1,4 +1,9 @@
 const getApiBaseUrl = () => {
+  const envUrl = process.env.REACT_APP_API_BASE_URL;
+  if (envUrl && typeof envUrl === 'string') {
+    return envUrl.replace(/\/$/, '').replace(/\/api$/i, '');
+  }
+
   if (typeof window !== 'undefined') {
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       return 'http://localhost:5000';
